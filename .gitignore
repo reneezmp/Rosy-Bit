@@ -1,0 +1,17 @@
+# SwiftPM
+.build/
+.swiftpm/
+Package.resolved
+
+# Build output
+dist/
+
+# llama-server payloads, fetched per-machine by scripts/fetch-llama-server.sh
+vendor/
+
+# Models never live in the repo — they live in
+# ~/Library/Application Support/RosyBit/
+*.gguf
+
+# macOS
+.DS_Store
