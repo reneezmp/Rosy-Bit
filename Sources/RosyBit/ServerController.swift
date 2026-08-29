@@ -60,6 +60,7 @@ final class ServerController: ObservableObject {
 
     private var process: Process?
     private var logHandle: FileHandle?
+    private let proxy = ProxyServer()
     private var isStopping = false
     private var healthProbeInFlight = false
 
@@ -83,12 +84,25 @@ final class ServerController: ObservableObject {
             return
         }
 
+        // Clear the public port first — this also kills a pidfile-tracked
+        // orphan wherever it is listening, which matters when insightsEnabled
+        // has been toggled and the orphan is on the other port.
         switch PortGuard.prepare(port: Config.port, pidFile: Config.pidFile) {
         case .clear, .clearedOrphan:
             break
         case .blocked(let occupant):
             state = .portBusy(occupant)
             return
+        }
+
+        if Config.serverBindPort != Config.port {
+            switch PortGuard.prepare(port: Config.serverBindPort, pidFile: Config.pidFile) {
+            case .clear, .clearedOrphan:
+                break
+            case .blocked(let occupant):
+                state = .portBusy("\(occupant) on \(Config.serverBindPort)")
+                return
+            }
         }
 
         let alias = model.deletingPathExtension().lastPathComponent
@@ -158,6 +172,7 @@ final class ServerController: ObservableObject {
         self.state = .starting
 
         PortGuard.writePidFile(Config.pidFile, pid: process.processIdentifier)
+        startProxyIfEnabled()
     }
 
     func stop() {
@@ -292,7 +307,24 @@ final class ServerController: ObservableObject {
         }
     }
 
+    /// Puts the proxy in front of llama-server once the child is up.
+    ///
+    /// If this fails the endpoint is dead — llama-server is on the upstream
+    /// port and nothing is on the public one — so say so plainly and name the
+    /// way out, which does not need a rebuild.
+    private func startProxyIfEnabled() {
+        guard Config.insightsEnabled else { return }
+        do {
+            try proxy.start(port: Config.port, upstreamPort: Config.upstreamPort)
+        } catch {
+            state = .failed(
+                "Insights proxy could not take port \(Config.port). "
+                + "Run: defaults write com.rosybit.app insightsEnabled -bool false")
+        }
+    }
+
     private func cleanUp() {
+        proxy.stop()
         // Invalidate anything still in flight from the run being torn down.
         generation += 1
 

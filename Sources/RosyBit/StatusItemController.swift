@@ -172,6 +172,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             ServerController.shared.state.isBusy ? "Stop Server" : "Start Server",
             #selector(toggleServer)))
         menu.addItem(item("Copy Endpoint URL", #selector(copyEndpoint)))
+        if Config.insightsEnabled {
+            let captured = InsightsStore.shared.records.count
+            let title = captured > 0 ? "Insights… (\(captured))" : "Insights…"
+            menu.addItem(item(title, #selector(showInsights)))
+        }
         menu.addItem(item("Open Log", #selector(openLog)))
 
         menu.addItem(.separator())
@@ -265,6 +270,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             NSWorkspace.shared.open(directory)
         }
+    }
+
+    @objc private func showInsights() {
+        InsightsWindowController.shared.show()
     }
 
     @objc private func openModelsFolder() {

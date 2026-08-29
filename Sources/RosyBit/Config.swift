@@ -67,6 +67,32 @@ enum Config {
         #endif
     }
 
+    /// Where llama-server actually listens when Insights is on. Rosy Bit takes
+    /// the public port and forwards, which is the only way it can see the
+    /// request and response bodies — it supervises someone else's server rather
+    /// than being one. Nothing outside the app should need this port.
+    static var upstreamPort: Int { intDefault("upstreamPort", fallback: 11337, clampedTo: 1024...65535) }
+
+    /// The escape hatch. Set false and llama-server binds the public port
+    /// directly, with no proxy in the request path and no Insights:
+    ///
+    ///     defaults write com.rosybit.app insightsEnabled -bool false
+    ///
+    /// Worth knowing about, because with Insights on, an app crash takes the
+    /// endpoint down with it. Without it, llama-server keeps serving.
+    static var insightsEnabled: Bool {
+        (UserDefaults.standard.object(forKey: "insightsEnabled") as? Bool) ?? true
+    }
+
+    /// The port llama-server is told to bind — behind the proxy, or in front of
+    /// it when Insights is off.
+    static var serverBindPort: Int { insightsEnabled ? upstreamPort : port }
+
+    /// How many requests Insights keeps. In memory only, never written to disk:
+    /// on this machine the buffer holds meeting transcripts, so quitting the app
+    /// has to be enough to erase them.
+    static var insightsCapacity: Int { intDefault("insightsCapacity", fallback: 200, clampedTo: 10...2000) }
+
     /// How many requests llama-server can hold in flight at once.
     ///
     /// Each slot gets its own full context, so KV memory is `contextSize` ×
@@ -123,7 +149,7 @@ enum Config {
     static func serverArguments(modelPath: String, alias: String) -> [String] {
         var arguments = [
             "--host", host,
-            "--port", String(port),
+            "--port", String(serverBindPort),
             "-m", modelPath,
             "-c", String(contextSize),
             "-t", String(threads),
