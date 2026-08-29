@@ -20,7 +20,8 @@ macOS SDK is still Universal for back deployment. It is not a hack.
 or build any Swift until the smoke test passes.
 
 ```bash
-git clone https://github.com/reneezmp/rosy-bit.git ~/rosy-bit
+git clone -b claude/rosy-bit-planning-90xr0a \
+  https://github.com/reneezmp/Rosy-Bit.git ~/rosy-bit
 cd ~/rosy-bit
 ```
 
@@ -134,7 +135,8 @@ and use the same value for the app (see [Configuration](#configuration)).
 ## Step 2 — build the app on the M4
 
 ```bash
-git clone https://github.com/reneezmp/rosy-bit.git ~/rosy-bit
+git clone -b claude/rosy-bit-planning-90xr0a \
+  https://github.com/reneezmp/Rosy-Bit.git ~/rosy-bit
 cd ~/rosy-bit
 
 ./scripts/fetch-llama-server.sh     # both slices this time
