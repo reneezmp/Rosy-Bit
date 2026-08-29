@@ -203,6 +203,29 @@ final class ServerController: ObservableObject {
         if state.isBusy { stop() } else { start() }
     }
 
+    /// Abandons whatever llama-server is generating, without restarting it and
+    /// reloading the model.
+    ///
+    /// Needed because a client going away no longer reaches llama-server on its
+    /// own: it streams into the proxy, which always accepts, so a client that
+    /// stops reading never applies the backpressure that used to end the
+    /// generation. Dropping the upstream connection restores that signal.
+    @discardableResult
+    func cancelActiveRequests() -> Int {
+        let closed = proxy.closeActiveSessions()
+        if closed > 0 {
+            // Optimistic: llama-server should log the release, and the scanner
+            // clamps at zero if it does, but the indicator should not sit lit
+            // while the user waits to find out.
+            activeRequests = 0
+        }
+        return closed
+    }
+
+    /// Whether cancelling is possible at all — it works by closing proxy
+    /// connections, which do not exist when Insights is off.
+    var canCancelRequests: Bool { Config.insightsEnabled && activeRequests > 0 }
+
     /// Called from `applicationWillTerminate`, where there is no time left for
     /// an async round trip: the child must be gone before we return.
     ///

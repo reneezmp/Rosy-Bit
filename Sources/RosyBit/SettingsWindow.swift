@@ -16,6 +16,8 @@ final class SettingsModel: ObservableObject {
     @Published var kvCacheType = ""
     @Published var overrideTemperature = false
     @Published var temperature = 0.8
+    @Published var overrideRepeatPenalty = false
+    @Published var repeatPenalty = 1.1
     @Published var corsOrigins = ""
     @Published var port = 1337
     @Published var insightsEnabled = true
@@ -29,6 +31,8 @@ final class SettingsModel: ObservableObject {
         kvCacheType = Config.kvCacheType ?? ""
         overrideTemperature = Config.temperature != nil
         temperature = Config.temperature ?? 0.8
+        overrideRepeatPenalty = Config.repeatPenalty != nil
+        repeatPenalty = Config.repeatPenalty ?? 1.1
         corsOrigins = Config.corsOrigins ?? ""
         port = Config.port
         insightsEnabled = Config.insightsEnabled
@@ -76,13 +80,19 @@ final class SettingsModel: ObservableObject {
         } else {
             defaults.removeObject(forKey: "temperature")
         }
+        if overrideRepeatPenalty {
+            defaults.set(repeatPenalty, forKey: "repeatPenalty")
+        } else {
+            defaults.removeObject(forKey: "repeatPenalty")
+        }
     }
 
     func restoreDefaults() {
         let defaults = UserDefaults.standard
         for key in [
             "contextSize", "threads", "parallelSlots", "kvCacheType", "temperature",
-            "corsOrigins", "port", "insightsEnabled", "upstreamPort", "insightsCapacity",
+            "repeatPenalty", "corsOrigins", "port", "insightsEnabled", "upstreamPort",
+            "insightsCapacity",
         ] {
             defaults.removeObject(forKey: key)
         }
@@ -196,6 +206,21 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Toggle("Discourage repetition", isOn: $model.overrideRepeatPenalty)
+            if model.overrideRepeatPenalty {
+                HStack {
+                    Slider(value: $model.repeatPenalty, in: 1...1.5, step: 0.05)
+                    Text(String(format: "%.2f", model.repeatPenalty))
+                        .font(.callout.monospaced())
+                        .frame(width: 44, alignment: .trailing)
+                }
+            }
+            Text("A long generation can collapse into repeating itself — this model has "
+                 + "done it on transcripts. llama.cpp defaults to 1.0, meaning off; 1.1 is "
+                 + "the conventional mild setting.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 

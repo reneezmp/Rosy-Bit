@@ -131,6 +131,19 @@ enum Config {
         return min(max(value, 0), 2)
     }
 
+    /// Penalises tokens the model has already used, which is the usual lever
+    /// against a long generation collapsing into repeating itself. Recent
+    /// llama.cpp defaults this to 1.0, meaning off. 1.1 is the conventional
+    /// mild setting.
+    ///
+    ///     defaults write com.rosybit.app repeatPenalty -float 1.1
+    static var repeatPenalty: Double? {
+        guard let value = UserDefaults.standard.object(forKey: "repeatPenalty") as? Double else {
+            return nil
+        }
+        return min(max(value, 1), 2)
+    }
+
     /// Restricts which browser origins may call the endpoint.
     ///
     /// Binding to loopback keeps the network out, but it does not keep browsers
@@ -166,6 +179,9 @@ enum Config {
         }
         if let temperature {
             arguments += ["--temp", String(temperature)]
+        }
+        if let repeatPenalty {
+            arguments += ["--repeat-penalty", String(repeatPenalty)]
         }
         if let corsOrigins {
             arguments += ["--cors-origins", corsOrigins]

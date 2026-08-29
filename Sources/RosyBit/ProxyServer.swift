@@ -66,11 +66,24 @@ final class ProxyServer {
         // Cancelling the listener only stops new connections. Sessions already
         // pumping would keep forwarding to an upstream that is about to go
         // away, so close them too.
+        closeActiveSessions()
+    }
+
+    /// Drops every in-flight connection while leaving the listener up.
+    ///
+    /// This is how a runaway generation gets stopped. llama-server abandons a
+    /// slot when the connection it is streaming into goes away, so closing the
+    /// upstream side does what a client disconnect used to do by itself —
+    /// before this proxy sat in between and absorbed it.
+    @discardableResult
+    func closeActiveSessions() -> Int {
         sessionsLock.lock()
-        let active = sessions.values
+        let active = Array(sessions.values)
         sessions.removeAll()
         sessionsLock.unlock()
+
         active.forEach { $0.close() }
+        return active.count
     }
 
     private func accept(client: NWConnection, upstreamPort: NWEndpoint.Port) {

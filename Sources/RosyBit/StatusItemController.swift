@@ -168,6 +168,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
         menu.addItem(modelMenuItem())
+        if ServerController.shared.canCancelRequests {
+            menu.addItem(item("Cancel Request", #selector(cancelRequests)))
+        }
         menu.addItem(item(
             ServerController.shared.state.isBusy ? "Stop Server" : "Start Server",
             #selector(toggleServer)))
@@ -255,6 +258,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func toggleServer() {
         ServerController.shared.toggle()
+    }
+
+    @objc private func cancelRequests() {
+        ServerController.shared.cancelActiveRequests()
     }
 
     @objc private func copyEndpoint() {
