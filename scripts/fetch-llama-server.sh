@@ -21,7 +21,26 @@ set -euo pipefail
 
 LLAMA_TAG="${LLAMA_TAG:-b10684}"
 LLAMA_REPO="${LLAMA_REPO:-ggml-org/llama.cpp}"
-DEPLOYMENT_TARGET="13.0"
+
+# What the binary must be able to launch on — which is the OS of the machine
+# that will actually serve, NOT the app's deployment target. Rosy runs Ventura
+# 13.7.8, so a binary needing 13.3 is fine there even though the app bundle
+# itself targets 13.0.
+#
+# Defaults to this machine's version, which is the right answer when running
+# step 1 on Rosy as the runbook says. When fetching Rosy's slice from the M4,
+# pass Rosy's version explicitly:
+#
+#   TARGET_MACOS=13.7.8 ./scripts/fetch-llama-server.sh x86_64
+#
+HOST_ARCH="$(uname -m 2>/dev/null || echo unknown)"
+HOST_MACOS="$(sw_vers -productVersion 2>/dev/null || true)"
+if [ -n "${TARGET_MACOS:-}" ]; then
+    TARGET_EXPLICIT=1
+else
+    TARGET_EXPLICIT=0
+    TARGET_MACOS="${HOST_MACOS:-13.0}"
+fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENDOR="$ROOT/vendor"
@@ -101,14 +120,19 @@ check_minos() {
         return 0
     fi
 
-    oldest="$(printf '%s\n%s\n' "$minos" "$DEPLOYMENT_TARGET" | sort -V | head -n1)"
-    if [ "$oldest" != "$DEPLOYMENT_TARGET" ] || [ "$minos" = "$DEPLOYMENT_TARGET" ]; then
-        printf '  minos: %s — OK for macOS %s\n' "$minos" "$DEPLOYMENT_TARGET"
+    # OK when minos <= TARGET_MACOS, equality included.
+    oldest="$(printf '%s\n%s\n' "$minos" "$TARGET_MACOS" | sort -V | head -n1)"
+    if [ "$oldest" = "$minos" ]; then
+        printf '  minos: %s — OK for macOS %s\n' "$minos" "$TARGET_MACOS"
+        if [ "$arch" != "$HOST_ARCH" ] && [ "$TARGET_EXPLICIT" = "0" ]; then
+            printf '  note:  checked against THIS machine. For Rosy, re-run with\n'
+            printf '         TARGET_MACOS=$(ssh rosy sw_vers -productVersion)\n'
+        fi
         return 0
     fi
 
     printf '  minos: %s — TOO NEW. This will not launch on macOS %s.\n' \
-        "$minos" "$DEPLOYMENT_TARGET" >&2
+        "$minos" "$TARGET_MACOS" >&2
 
     # arm64 only ever runs on the build machine, so a newer minos there is not
     # fatal. x86_64 is Rosy's slice: bundling it would produce an app that dies
@@ -121,13 +145,15 @@ check_minos() {
     fi
 
     rm -rf "$(dirname "$binary")"
-    printf '\n  Compile llama.cpp from source on Rosy instead — you do NOT need\n' >&2
+    printf '\n  If %s is not the version that will run this, re-run with the\n' "$TARGET_MACOS" >&2
+    printf '  right one, e.g. TARGET_MACOS=13.7.8 %s %s\n\n' "$0" "$arch" >&2
+    printf '  Otherwise compile llama.cpp from source on Rosy — you do NOT need\n' >&2
     printf '  the prism fork, Q1_0 is upstream. See docs/RUNBOOK.md step 1a.\n' >&2
-    printf '  To bundle it anyway: ALLOW_NEW_MINOS=1 %s\n' "$0" >&2
+    printf '  To bundle it regardless: ALLOW_NEW_MINOS=1 %s %s\n' "$0" "$arch" >&2
     return 1
 }
 
-printf 'llama.cpp %s\n' "$LLAMA_TAG"
+printf 'llama.cpp %s — checking binaries against macOS %s\n' "$LLAMA_TAG" "$TARGET_MACOS"
 for arch in "${ARCHES[@]}"; do
     fetch_arch "$arch"
 done

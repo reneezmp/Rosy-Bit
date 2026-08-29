@@ -34,10 +34,10 @@ cd ~/rosy-bit
 Expected:
 
 ```
-llama.cpp b10684
+llama.cpp b10684 — checking binaries against macOS 13.7.8
 trying https://github.com/ggml-org/llama.cpp/releases/download/b10684/llama-b10684-bin-macos-x64.tar.gz
-installed vendor/x86_64/ (12M)
-  minos: 13.0 — OK for macOS 13.0
+installed vendor/x86_64/ (53M)
+  minos: 13.3 — OK for macOS 13.7.8
 ```
 
 **The Swift is not the risk here — the prebuilt binary is.** If it was compiled
@@ -49,13 +49,26 @@ the check for you; to do it by hand:
 otool -l vendor/x86_64/llama-server | grep -A3 LC_BUILD_VERSION
 ```
 
-**If `minos` is above 13.0** the script refuses: it deletes the Intel payload
-and exits non-zero rather than leave an unlaunchable binary for `make app` to
-pick up. (`ALLOW_NEW_MINOS=1` overrides, if you want it anyway. A newer `minos`
-on the *arm64* slice is only ever a warning — that slice never leaves the M4.)
+The number that matters is **the OS that will actually run the binary**, not the
+app's deployment target. Rosy is on Ventura 13.7.8, so a `minos` of 13.3 is
+fine there — the app bundle targets 13.0 for its own Swift, which is a separate
+question. The script defaults to checking against the machine it is running on,
+which is correct when you run step 1 on Rosy as above.
 
-Compile from source on Rosy instead. Slow on two cores, but straightforward —
-and note you do **not** need PrismML's `prism` fork.
+**Fetching Rosy's slice from the M4 instead?** The default is then the M4's own
+version, which tells you nothing useful. Pass Rosy's:
+
+```bash
+TARGET_MACOS=13.7.8 ./scripts/fetch-llama-server.sh x86_64
+```
+
+**If `minos` really is above the target** the script refuses: it deletes the
+Intel payload and exits non-zero rather than leave an unlaunchable binary for
+`make app` to pick up. (`ALLOW_NEW_MINOS=1` overrides. A newer `minos` on the
+*arm64* slice is only ever a warning — that slice never leaves the M4.)
+
+Then compile from source on Rosy. Slow on two cores, but straightforward — and
+note you do **not** need PrismML's `prism` fork.
 `Q1_0` was merged into upstream llama.cpp ([#21273], with the x86-optimized CPU
 kernel in [#21636]); the fork is only needed for ternary `Q2_0`.
 
