@@ -67,6 +67,40 @@ enum Config {
         #endif
     }
 
+    /// How many requests llama-server can hold in flight at once.
+    ///
+    /// Each slot gets its own full context, so KV memory is `contextSize` ×
+    /// slots. Bonsai is 28 layers with 8 KV heads at head_dim 128, which is
+    /// 112 KiB per token at f16 — four slots at 8192 would be 3.6 GB of cache
+    /// for a machine with two cores that cannot usefully generate four replies
+    /// at once. One slot is the right default here; llama-server's own default
+    /// is 4, which is why this is set explicitly rather than left alone.
+    ///
+    ///     defaults write com.rosybit.app parallelSlots -int 2
+    static var parallelSlots: Int { intDefault("parallelSlots", fallback: 1, clampedTo: 1...8) }
+
+    /// Quantises the KV cache, e.g. `q8_0` to roughly halve the memory above
+    /// for very little quality cost. Unset leaves llama-server on f16.
+    ///
+    /// Some builds refuse a quantised V cache without flash attention. If the
+    /// server exits at startup after setting this, check the log — that is the
+    /// likely reason.
+    ///
+    ///     defaults write com.rosybit.app kvCacheType q8_0
+    static var kvCacheType: String? { nonEmptyString("kvCacheType") }
+
+    /// Sampling temperature the server falls back to. Note that an
+    /// OpenAI-compatible client sending its own `temperature` overrides this
+    /// per request, which most of them do.
+    ///
+    ///     defaults write com.rosybit.app temperature -float 0.3
+    static var temperature: Double? {
+        guard let value = UserDefaults.standard.object(forKey: "temperature") as? Double else {
+            return nil
+        }
+        return min(max(value, 0), 2)
+    }
+
     /// Restricts which browser origins may call the endpoint.
     ///
     /// Binding to loopback keeps the network out, but it does not keep browsers
@@ -82,11 +116,7 @@ enum Config {
     ///     defaults write com.rosybit.app corsOrigins "app://obsidian.md"
     ///
     /// Unset means llama-server's own default, which is to allow all.
-    static var corsOrigins: String? {
-        guard let value = UserDefaults.standard.string(forKey: "corsOrigins"),
-              !value.isEmpty else { return nil }
-        return value
-    }
+    static var corsOrigins: String? { nonEmptyString("corsOrigins") }
 
     /// Arguments for the server. Deliberately no `-ngl`: every Bonsai example
     /// assumes CUDA or Apple Silicon Metal, and Rosy has neither.
@@ -97,9 +127,16 @@ enum Config {
             "-m", modelPath,
             "-c", String(contextSize),
             "-t", String(threads),
+            "-np", String(parallelSlots),
             "--jinja",
             "--alias", alias,
         ]
+        if let kvCacheType {
+            arguments += ["--cache-type-k", kvCacheType, "--cache-type-v", kvCacheType]
+        }
+        if let temperature {
+            arguments += ["--temp", String(temperature)]
+        }
         if let corsOrigins {
             arguments += ["--cors-origins", corsOrigins]
         }
@@ -113,6 +150,13 @@ enum Config {
             return url
         }
         return URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library", isDirectory: true)
+    }
+
+    private static func nonEmptyString(_ key: String) -> String? {
+        guard let value = UserDefaults.standard.string(forKey: key), !value.isEmpty else {
+            return nil
+        }
+        return value
     }
 
     private static func intDefault(_ key: String, fallback: Int, clampedTo range: ClosedRange<Int>) -> Int {

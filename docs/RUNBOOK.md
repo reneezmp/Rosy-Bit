@@ -355,9 +355,36 @@ gets back `request (N tokens) exceeds the available context size`, which is the
 server refusing cleanly, not a crash. Roughly 750 words per 1000 tokens, so
 8192 covers about 6000 words.
 
-It costs memory: llama-server runs 4 slots by default and each gets its own
-context, so KV usage scales with `contextSize` × 4. At 8192 that is under a
-gigabyte for this model — fine on 16 GB, worth knowing before going higher.
+**It costs real memory, multiplied by the slot count.** Bonsai is Qwen3-1.7B —
+28 layers, 8 KV heads, head_dim 128 — which works out to 112 KiB of KV cache
+per token at f16. Each slot holds its own full context:
+
+| `contextSize` | Per slot | 1 slot | 4 slots |
+|---|---|---|---|
+| 2048 | 229 MiB | 0.2 GiB | 0.9 GiB |
+| 8192 | 917 MiB | 0.9 GiB | 3.6 GiB |
+| 32768 | 3.6 GiB | 3.6 GiB | 14.3 GiB |
+
+Rosy Bit sets `parallelSlots` to **1** rather than llama-server's default of 4:
+two cores cannot usefully generate four replies at once, and the other three
+slots are pure memory cost. Raise it only if something really does need
+concurrent requests.
+
+```bash
+defaults write com.rosybit.app parallelSlots -int 2
+defaults write com.rosybit.app kvCacheType q8_0     # ~halves the table above
+defaults write com.rosybit.app temperature -float 0.3
+```
+
+`kvCacheType` is the cheapest way to afford a big context. Some builds refuse a
+quantised V cache without flash attention — if the server stops starting after
+you set it, that is why, and the log will say so.
+
+`temperature` is only a fallback: an OpenAI-compatible client that sends its own
+`temperature` wins, and most do.
+
+The model's trained context is **32,768**, so anything up to that is legitimate
+— memory is the limit, not the model.
 
 Check the log after raising it; llama-server warns there if the value exceeds
 what the model was trained for:
