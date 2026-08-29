@@ -1,11 +1,21 @@
-# Rosy Bit — build on the M4, run on Rosy.
+# Rosy Bit — build wherever there is a Swift toolchain.
 #
-# Xcode 27 is Apple Silicon only, so the app is built on the M4 and the .app is
-# copied across. The macOS SDK is still Universal for back deployment, so this
-# is a normal supported path, not a hack.
+# Two supported routes:
 #
-#   make bootstrap   fetch llama-server for both architectures
-#   make app         build dist/RosyBit.app (universal, ad-hoc signed)
+#   On the M4, with full Xcode. Builds universal, so the result runs on both
+#   machines and can be exercised locally before it is copied to Rosy. Xcode 27
+#   is Apple Silicon only, but the macOS SDK is still Universal for back
+#   deployment, so targeting Rosy from here is a normal supported path.
+#
+#   On Rosy, with only the Command Line Tools. A universal build needs XCBuild,
+#   which ships inside full Xcode; without it SwiftPM builds the host
+#   architecture alone. That is all Rosy needs, and it skips the copy, the
+#   quarantine and the lipo check entirely.
+#
+# Which one happens is detected below. Force either with UNIVERSAL=1 or 0.
+#
+#   make bootstrap   fetch llama-server
+#   make app         build dist/RosyBit.app (ad-hoc signed)
 #   make dist        zip it for copying to Rosy
 #   make clean
 
@@ -17,11 +27,29 @@ ICONS      := Support/icons
 ICONSET    := $(ICONS)/AppIcon.iconset
 ICNS       := $(ICONS)/AppIcon.icns
 
-# x86_64 is what Rosy needs; arm64 lets the whole thing be tested on the M4
-# before it is copied anywhere. At deployment target 13.0 this is the default
-# anyway — we are nowhere near the macOS 27 threshold where ARCHS_STANDARD
-# quietly drops x86_64 — but state it rather than trust it.
-SWIFTFLAGS := -c release --arch x86_64 --arch arm64
+# Passing --arch twice routes SwiftPM through XCBuild, which only exists inside
+# full Xcode — with the Command Line Tools alone it fails with "xcbuild
+# executable ... does not exist". So ask what the toolchain actually is rather
+# than assuming, and fall back to a host-architecture build, which is a
+# perfectly good app for the machine building it.
+#
+# At deployment target 13.0 x86_64 is included by default anyway — we are
+# nowhere near the macOS 27 threshold where ARCHS_STANDARD quietly drops it —
+# but state it rather than trust it.
+DEVELOPER_DIR := $(shell xcode-select -p 2>/dev/null)
+ifeq ($(origin UNIVERSAL), undefined)
+  ifneq (,$(findstring Xcode.app,$(DEVELOPER_DIR)))
+    UNIVERSAL := 1
+  else
+    UNIVERSAL := 0
+  endif
+endif
+
+ifeq ($(UNIVERSAL),1)
+  SWIFTFLAGS := -c release --arch x86_64 --arch arm64
+else
+  SWIFTFLAGS := -c release
+endif
 
 .PHONY: all app icons dist run clean bootstrap check-vendor verify
 
@@ -46,6 +74,13 @@ check-vendor:
 	fi
 
 app: check-vendor icons
+	@if [ "$(UNIVERSAL)" = "1" ]; then \
+		echo "building universal (full Xcode at $(DEVELOPER_DIR))"; \
+	else \
+		echo "building for $$(uname -m) only — Command Line Tools have no XCBuild."; \
+		echo "  fine if this machine is the one that will run it;"; \
+		echo "  for a universal build use a Mac with full Xcode."; \
+	fi
 	swift build $(SWIFTFLAGS)
 	@rm -rf "$(APP)"
 	@mkdir -p "$(CONTENTS)/MacOS" "$(CONTENTS)/Resources/llama"
@@ -54,9 +89,13 @@ app: check-vendor icons
 	@printf 'APPL????' > "$(CONTENTS)/PkgInfo"
 	@cp "$(ICNS)" "$(CONTENTS)/Resources/AppIcon.icns"
 	@cp "$(ICONS)/MenuBarIcon.png" "$(ICONS)/MenuBarIcon@2x.png" "$(CONTENTS)/Resources/"
-	@for arch in x86_64 arm64; do \
+	@# Stage only the slices the app itself has. A host-only build has no use
+	@# for the other architecture's llama-server, and it is 55MB of dead weight.
+	@for arch in $$(lipo -archs "$(CONTENTS)/MacOS/$(APP_NAME)"); do \
 		if [ -d "vendor/$$arch" ]; then \
 			cp -R "vendor/$$arch" "$(CONTENTS)/Resources/llama/$$arch"; \
+		else \
+			echo "WARNING: app has a $$arch slice but vendor/$$arch is missing"; \
 		fi; \
 	done
 	@echo "signing (ad-hoc) ..."
@@ -71,7 +110,11 @@ app: check-vendor icons
 verify:
 	@archs="$$(lipo -archs "$(CONTENTS)/MacOS/$(APP_NAME)")"; \
 	echo "  app archs      : $$archs"; \
-	case "$$archs" in *x86_64*) ;; *) echo "error: no x86_64 slice"; exit 1 ;; esac
+	case "$$archs" in *x86_64*) ;; *) \
+		echo "error: no x86_64 slice — this cannot run on Rosy."; \
+		echo "       a host-only build on Apple Silicon produces arm64 alone;"; \
+		echo "       build with full Xcode for universal, or build on Rosy."; \
+		exit 1 ;; esac
 	@for arch in x86_64 arm64; do \
 		binary="$(CONTENTS)/Resources/llama/$$arch/llama-server"; \
 		if [ -x "$$binary" ]; then \

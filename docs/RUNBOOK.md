@@ -147,7 +147,30 @@ and use the same value for the app (see [Configuration](#configuration)).
 
 ---
 
-## Step 2 — build the app on the M4
+## Step 2 — build the app
+
+You need a Swift toolchain, not necessarily Xcode. Two routes work:
+
+**On Rosy, with just the Command Line Tools.** Simplest, and it skips step 3
+entirely — no copy, no quarantine, no `lipo` worry. `make app` detects that
+XCBuild is absent and builds for the host architecture alone, which is exactly
+what Rosy runs. You are already in the right directory:
+
+```bash
+cd ~/Developer/rosy-bit && make app && make run
+```
+
+**On the M4, with full Xcode.** Builds universal, so the same bundle runs on
+both machines and the UI can be exercised on fast hardware first. Follow the
+rest of this step and then step 3.
+
+> Passing `--arch` twice routes SwiftPM through XCBuild, which only ships inside
+> full Xcode. With the Command Line Tools alone it fails with
+> `xcbuild executable ... does not exist` — that is the toolchain talking, not
+> your machine being too old. Override the detection with `UNIVERSAL=1` or
+> `UNIVERSAL=0` if you ever need to.
+
+### On the M4
 
 ```bash
 mkdir -p ~/Developer

@@ -84,9 +84,11 @@ xattr -dr com.apple.quarantine /Applications/RosyBit.app
 open /Applications/RosyBit.app
 ```
 
-You cannot build this on Rosy: Xcode 27 runs only on Apple Silicon. Build on the
-M4, copy the `.app` across — the macOS SDK is still Universal for back
-deployment, so this is a normal supported path.
+Either machine can build it. Rosy needs only the Command Line Tools: `make app`
+notices there is no XCBuild, builds for the host architecture, and skips the
+copy entirely. Building on the M4 needs full Xcode but produces a Universal
+bundle that runs on both — the macOS SDK is still Universal for back
+deployment, so targeting Ventura from Apple Silicon is a normal supported path.
 
 ## Layout
 
