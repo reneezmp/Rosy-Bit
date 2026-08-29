@@ -24,12 +24,22 @@ struct RosyBitApp: App {
 /// same sakura motif, two assets.
 struct MenuBarLabel: View {
 
+    @ObservedObject private var server = ServerController.shared
+
     var body: some View {
-        if let image = Self.templateImage {
-            Image(nsImage: image)
-        } else {
-            // The app should never fail to appear just because art is missing.
-            Image(systemName: "camera.macro")
+        // The dot's space is reserved whether or not it is showing, so the
+        // sakura does not shuffle sideways every time a request arrives.
+        HStack(spacing: 2) {
+            if let image = Self.templateImage {
+                Image(nsImage: image)
+            } else {
+                // The app should never fail to appear just because art is missing.
+                Image(systemName: "camera.macro")
+            }
+
+            Circle()
+                .fill(server.activeRequests > 0 ? Color.green : Color.clear)
+                .frame(width: 5, height: 5)
         }
     }
 

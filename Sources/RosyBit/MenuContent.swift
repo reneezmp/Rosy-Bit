@@ -11,7 +11,7 @@ struct MenuContent: View {
     @ObservedObject private var login = LoginItemModel.shared
 
     var body: some View {
-        Text(server.state.menuTitle)
+        Text(statusLine)
 
         Divider()
 
@@ -42,6 +42,16 @@ struct MenuContent: View {
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q")
+    }
+
+    /// Same information the menu bar dot carries, spelled out for anyone who has
+    /// opened the menu to find out what the machine is busy with.
+    private var statusLine: String {
+        guard server.state == .running, server.activeRequests > 0 else {
+            return server.state.menuTitle
+        }
+        let plural = server.activeRequests == 1 ? "" : "s"
+        return "◐ Working — \(server.activeRequests) request\(plural)"
     }
 
     @ViewBuilder

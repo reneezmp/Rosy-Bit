@@ -54,6 +54,10 @@ final class ServerController: ObservableObject {
     @Published private(set) var state: State = .stopped
     @Published private(set) var activeModelName: String?
 
+    /// Requests llama-server currently has in flight, counted from its own
+    /// output. Drives the menu bar indicator.
+    @Published private(set) var activeRequests = 0
+
     private var process: Process?
     private var logHandle: FileHandle?
     private var isStopping = false
@@ -109,9 +113,9 @@ final class ServerController: ObservableObject {
         generation += 1
         let token = generation
 
-        // Tee: every byte goes to the log, and the same bytes are scanned for
-        // the line where the server announces it is accepting connections.
-        let scanner = ReadyLineScanner()
+        // Tee: every byte goes to the log, and the same bytes tell us when the
+        // server starts listening and when it is working on a request.
+        let scanner = ServerLogScanner()
         pipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
             guard !data.isEmpty else {
@@ -122,8 +126,11 @@ final class ServerController: ObservableObject {
                 return
             }
             try? logHandle?.write(contentsOf: data)
-            if scanner.consume(data) {
-                DispatchQueue.main.async { ServerController.shared.markReady(token: token) }
+
+            let events = scanner.consume(data)
+            guard !events.isEmpty else { return }
+            DispatchQueue.main.async {
+                ServerController.shared.apply(events: events, token: token)
             }
         }
 
@@ -246,6 +253,24 @@ final class ServerController: ObservableObject {
         }.resume()
     }
 
+    private func apply(events: [ServerLogScanner.Event], token: Int) {
+        guard token == generation else { return }
+
+        for event in events {
+            switch event {
+            case .ready:
+                markReady(token: token)
+            case .taskStarted:
+                activeRequests += 1
+            case .taskFinished:
+                // Never below zero: the log may already have been mid-request
+                // when we attached, and a dropped line should not wedge the
+                // indicator on.
+                activeRequests = max(0, activeRequests - 1)
+            }
+        }
+    }
+
     private func markReady(token: Int) {
         guard token == generation, state == .starting else { return }
         state = .running
@@ -276,6 +301,7 @@ final class ServerController: ObservableObject {
         }
         process?.terminationHandler = nil
         process = nil
+        activeRequests = 0
 
         // Deliberately not closed here. Clearing readabilityHandler does not
         // wait for a block that is already running, and that block may be
@@ -304,38 +330,5 @@ final class ServerController: ObservableObject {
         let header = "# Rosy Bit — \(Date())\n# \(invocation)\n\n"
         try? handle.write(contentsOf: Data(header.utf8))
         return handle
-    }
-}
-
-/// Watches the server's own output for the point at which it starts accepting
-/// connections. Only ever touched from the pipe's reader queue.
-private final class ReadyLineScanner {
-    /// Wording has drifted between llama.cpp releases, so match several.
-    private static let markers = [
-        "server is listening",
-        "starting the main loop",
-        "HTTP server listening",
-        "all slots are idle",
-    ]
-
-    private var tail = ""
-    private var fired = false
-
-    func consume(_ data: Data) -> Bool {
-        guard !fired, let text = String(data: data, encoding: .utf8) else { return false }
-        tail += text
-        if Self.markers.contains(where: tail.contains) {
-            fired = true
-            tail = ""
-            return true
-        }
-
-        // Trim only after looking. Trimming first would discard a marker that
-        // arrived early in a large read — and llama-server prints a great deal
-        // of model metadata in the same breath as the line we are waiting for.
-        if tail.count > 4096 {
-            tail = String(tail.suffix(2048))
-        }
-        return false
     }
 }
