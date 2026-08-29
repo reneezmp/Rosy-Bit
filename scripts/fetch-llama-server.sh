@@ -87,11 +87,11 @@ fetch_arch() {
     chmod +x "$dest/llama-server"
 
     printf 'installed vendor/%s/ (%s)\n' "$arch" "$(du -sh "$dest" | cut -f1)"
-    check_minos "$dest/llama-server"
+    check_minos "$dest/llama-server" "$arch"
 }
 
 check_minos() {
-    local binary="$1" minos oldest
+    local binary="$1" arch="$2" minos oldest
     command -v otool >/dev/null 2>&1 || return 0
 
     minos="$(otool -l "$binary" 2>/dev/null \
@@ -102,13 +102,29 @@ check_minos() {
     fi
 
     oldest="$(printf '%s\n%s\n' "$minos" "$DEPLOYMENT_TARGET" | sort -V | head -n1)"
-    if [ "$oldest" = "$DEPLOYMENT_TARGET" ] && [ "$minos" != "$DEPLOYMENT_TARGET" ]; then
-        printf '  minos: %s — TOO NEW. This will not launch on Ventura %s.\n' \
-            "$minos" "$DEPLOYMENT_TARGET" >&2
-        printf '  Compile llama.cpp from source on Rosy instead; see docs/RUNBOOK.md.\n' >&2
-    else
+    if [ "$oldest" != "$DEPLOYMENT_TARGET" ] || [ "$minos" = "$DEPLOYMENT_TARGET" ]; then
         printf '  minos: %s — OK for macOS %s\n' "$minos" "$DEPLOYMENT_TARGET"
+        return 0
     fi
+
+    printf '  minos: %s — TOO NEW. This will not launch on macOS %s.\n' \
+        "$minos" "$DEPLOYMENT_TARGET" >&2
+
+    # arm64 only ever runs on the build machine, so a newer minos there is not
+    # fatal. x86_64 is Rosy's slice: bundling it would produce an app that dies
+    # on launch in a way that looks like a Gatekeeper problem, so refuse now
+    # and take the payload away rather than leave it to be picked up by
+    # `make app`.
+    if [ "$arch" != "x86_64" ] || [ "${ALLOW_NEW_MINOS:-0}" = "1" ]; then
+        printf '  (continuing anyway)\n' >&2
+        return 0
+    fi
+
+    rm -rf "$(dirname "$binary")"
+    printf '\n  Compile llama.cpp from source on Rosy instead — you do NOT need\n' >&2
+    printf '  the prism fork, Q1_0 is upstream. See docs/RUNBOOK.md step 1a.\n' >&2
+    printf '  To bundle it anyway: ALLOW_NEW_MINOS=1 %s\n' "$0" >&2
+    return 1
 }
 
 printf 'llama.cpp %s\n' "$LLAMA_TAG"

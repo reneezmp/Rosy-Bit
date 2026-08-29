@@ -42,7 +42,9 @@ print((match or ggufs or [""])[0])
     fi
 }
 
-MODEL_FILE="${MODEL_FILE:-$(resolve_filename)}"
+# `|| true` so a failed lookup falls through to the guidance below rather than
+# aborting on set -e with nothing said.
+MODEL_FILE="${MODEL_FILE:-$(resolve_filename || true)}"
 
 if [ -z "$MODEL_FILE" ]; then
     printf 'error: could not find a %s .gguf in %s\n' "$QUANT" "$MODEL_REPO" >&2
@@ -51,16 +53,21 @@ if [ -z "$MODEL_FILE" ]; then
 fi
 
 DEST="$MODEL_DIR/$(basename "$MODEL_FILE")"
+PARTIAL="$DEST.partial"
 
-if [ -s "$DEST" ]; then
+if [ -f "$DEST" ]; then
     printf 'already present: %s (%s)\n' "$DEST" "$(du -h "$DEST" | cut -f1)"
     exit 0
 fi
 
 URL="https://huggingface.co/${MODEL_REPO}/resolve/main/${MODEL_FILE}?download=true"
 printf 'downloading %s\n' "$MODEL_FILE"
-# -C - resumes a partial download; the file is small but the courthouse wifi
-# is not always kind.
-curl -fL --retry 3 --retry-delay 2 -C - -o "$DEST" "$URL"
+# Download beside the destination and only move it into place once curl reports
+# success. An interrupted transfer then resumes on the next run (-C -) instead
+# of sitting there looking like a finished file — a truncated .gguf fails deep
+# inside llama-server with nothing obvious to point at.
+# The app ignores .partial: it only ever lists *.gguf.
+curl -fL --retry 3 --retry-delay 2 -C - -o "$PARTIAL" "$URL"
+mv "$PARTIAL" "$DEST"
 
 printf 'installed %s (%s)\n' "$DEST" "$(du -h "$DEST" | cut -f1)"

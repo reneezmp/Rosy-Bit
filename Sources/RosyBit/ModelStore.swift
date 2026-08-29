@@ -49,23 +49,29 @@ final class ModelStore: ObservableObject {
             models = found
         }
 
-        let stored = UserDefaults.standard.string(forKey: Self.selectionKey)
+        // Fall back to the first model when the preferred one is not here, but
+        // do not write that fallback down: a model that is temporarily missing
+        // must not quietly overwrite a choice the user made.
         let resolved: String?
-        if let stored, found.contains(where: { $0.lastPathComponent == stored }) {
-            resolved = stored
+        if let preferred = preferredName, found.contains(where: { $0.lastPathComponent == preferred }) {
+            resolved = preferred
         } else {
             resolved = found.first?.lastPathComponent
         }
         if selectedName != resolved {
             selectedName = resolved
-            persistSelection()
         }
     }
 
+    /// Records an explicit choice. Always writes the preference, even when this
+    /// model is already the one being served — it may only be serving as a
+    /// fallback for a preferred model that is currently missing, and picking it
+    /// by hand should settle that.
     func select(_ url: URL) {
-        guard url.lastPathComponent != selectedName else { return }
-        selectedName = url.lastPathComponent
-        persistSelection()
+        let name = url.lastPathComponent
+        preferredName = name
+        guard name != selectedName else { return }
+        selectedName = name
     }
 
     func revealModelFolder() {
@@ -74,11 +80,10 @@ final class ModelStore: ObservableObject {
         NSWorkspace.shared.open(directory)
     }
 
-    private func persistSelection() {
-        if let selectedName {
-            UserDefaults.standard.set(selectedName, forKey: Self.selectionKey)
-        } else {
-            UserDefaults.standard.removeObject(forKey: Self.selectionKey)
-        }
+    /// The model the user actually picked, which is not the same thing as the
+    /// one currently being served. Only `select(_:)` writes it.
+    private var preferredName: String? {
+        get { UserDefaults.standard.string(forKey: Self.selectionKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.selectionKey) }
     }
 }

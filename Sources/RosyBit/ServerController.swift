@@ -114,7 +114,13 @@ final class ServerController: ObservableObject {
         let scanner = ReadyLineScanner()
         pipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
-            guard !data.isEmpty else { return }
+            guard !data.isEmpty else {
+                // EOF: the child is gone. The descriptor stays readable forever
+                // once it hits EOF, so leaving the handler installed spins the
+                // reader queue until cleanUp() gets its turn on the main thread.
+                handle.readabilityHandler = nil
+                return
+            }
             try? logHandle?.write(contentsOf: data)
             if scanner.consume(data) {
                 DispatchQueue.main.async { ServerController.shared.markReady(token: token) }
@@ -134,7 +140,6 @@ final class ServerController: ObservableObject {
             try process.run()
         } catch {
             pipe.fileHandleForReading.readabilityHandler = nil
-            try? logHandle?.close()
             state = .failed("Could not launch llama-server: \(error.localizedDescription)")
             return
         }
@@ -178,7 +183,11 @@ final class ServerController: ObservableObject {
 
     /// Called from `applicationWillTerminate`, where there is no time left for
     /// an async round trip: the child must be gone before we return.
-    func terminateSynchronously(timeout: TimeInterval = 3) {
+    ///
+    /// This blocks the main thread, and `restart()` inherits that. llama-server
+    /// handles SIGTERM promptly so the usual cost is well under a second, but
+    /// a wedged child can stall the menu for the full timeout.
+    func terminateSynchronously(timeout: TimeInterval = 2) {
         isStopping = true
         defer {
             cleanUp()
@@ -267,7 +276,13 @@ final class ServerController: ObservableObject {
         }
         process?.terminationHandler = nil
         process = nil
-        try? logHandle?.close()
+
+        // Deliberately not closed here. Clearing readabilityHandler does not
+        // wait for a block that is already running, and that block may be
+        // mid-write; closing underneath it would risk writing to a descriptor
+        // the kernel has since handed to something else. Dropping our reference
+        // lets the handle close on deinit once the last writer lets go. Writes
+        // are unbuffered, so nothing is lost by waiting.
         logHandle = nil
         activeModelName = nil
         isStopping = false
@@ -309,12 +324,18 @@ private final class ReadyLineScanner {
     func consume(_ data: Data) -> Bool {
         guard !fired, let text = String(data: data, encoding: .utf8) else { return false }
         tail += text
+        if Self.markers.contains(where: tail.contains) {
+            fired = true
+            tail = ""
+            return true
+        }
+
+        // Trim only after looking. Trimming first would discard a marker that
+        // arrived early in a large read — and llama-server prints a great deal
+        // of model metadata in the same breath as the line we are waiting for.
         if tail.count > 4096 {
             tail = String(tail.suffix(2048))
         }
-        guard Self.markers.contains(where: tail.contains) else { return false }
-        fired = true
-        tail = ""
-        return true
+        return false
     }
 }

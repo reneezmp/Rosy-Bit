@@ -67,8 +67,9 @@ struct MenuContent: View {
     }
 
     private func select(_ url: URL) {
-        guard !models.isSelected(url) else { return }
+        let changed = !models.isSelected(url)
         models.select(url)
+        guard changed else { return }
 
         // Switching models while serving should hand back a working endpoint;
         // switching while stopped should not start the server behind the user's

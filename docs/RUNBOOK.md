@@ -48,8 +48,13 @@ the check for you; to do it by hand:
 otool -l vendor/x86_64/llama-server | grep -A3 LC_BUILD_VERSION
 ```
 
-**If `minos` is above 13.0**, compile from source on Rosy. Slow on two cores,
-but straightforward — and note you do **not** need PrismML's `prism` fork.
+**If `minos` is above 13.0** the script refuses: it deletes the Intel payload
+and exits non-zero rather than leave an unlaunchable binary for `make app` to
+pick up. (`ALLOW_NEW_MINOS=1` overrides, if you want it anyway. A newer `minos`
+on the *arm64* slice is only ever a warning — that slice never leaves the M4.)
+
+Compile from source on Rosy instead. Slow on two cores, but straightforward —
+and note you do **not** need PrismML's `prism` fork.
 `Q1_0` was merged into upstream llama.cpp ([#21273], with the x86-optimized CPU
 kernel in [#21636]); the fork is only needed for ternary `Q2_0`.
 

@@ -76,11 +76,20 @@ verify:
 		binary="$(CONTENTS)/Resources/llama/$$arch/llama-server"; \
 		if [ -x "$$binary" ]; then \
 			echo "  llama-server   : $$arch $$(lipo -archs "$$binary")"; \
+		else \
+			echo "  llama-server   : $$arch MISSING"; \
 		fi; \
 	done
 	@codesign --verify --strict "$(APP)" && echo "  signature      : ok"
 
+# `make app` tolerates an arm64-only bundle so the UI can be exercised on the
+# M4. The zip is what actually goes to Rosy, so it does not.
 dist: app
+	@if [ ! -x "$(CONTENTS)/Resources/llama/x86_64/llama-server" ]; then \
+		echo "error: no Intel llama-server in the bundle — this cannot serve on Rosy."; \
+		echo "       run ./scripts/fetch-llama-server.sh x86_64 && make app"; \
+		exit 1; \
+	fi
 	cd "$(DIST)" && ditto -c -k --sequesterRsrc --keepParent \
 		"$(APP_NAME).app" "$(APP_NAME).zip"
 	@echo "packaged $(DIST)/$(APP_NAME).zip"

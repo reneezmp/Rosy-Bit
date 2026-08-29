@@ -18,6 +18,12 @@ enum PortGuard {
         case blocked(by: String)
     }
 
+    /// How long to wait for a signalled process to actually exit, and for the
+    /// kernel to release its socket afterwards. Both are on the main thread, so
+    /// they are kept short — the common case touches neither.
+    private static let processExitTimeout: TimeInterval = 1.5
+    private static let portReleaseTimeout: TimeInterval = 0.75
+
     /// Makes `port` available for a server we are about to launch.
     static func prepare(port: Int, pidFile: URL) -> Outcome {
         var killed: pid_t?
@@ -29,24 +35,31 @@ enum PortGuard {
         }
         try? FileManager.default.removeItem(at: pidFile)
 
-        if isPortFree(port) {
+        // Only wait for the socket if we just killed something; otherwise this
+        // is a single syscall.
+        if waitForPortFree(port, timeout: killed == nil ? 0 : portReleaseTimeout) {
             return killed.map { Outcome.clearedOrphan(pid: $0) } ?? .clear
         }
 
         // Layer 2: the pidfile was missing or stale but the port is still held.
         guard let pid = pidHoldingPort(port) else {
+            // Nothing is listening, yet the port would not bind. Rather than
+            // report a port we may have just cleared ourselves, give the kernel
+            // one more moment before giving up.
+            if waitForPortFree(port, timeout: portReleaseTimeout) {
+                return killed.map { Outcome.clearedOrphan(pid: $0) } ?? .clear
+            }
             return .blocked(by: "another process")
         }
+
         let name = processName(pid) ?? "pid \(pid)"
         guard name == "llama-server" else {
             return .blocked(by: name)
         }
 
         terminate(pid)
-        // Give the socket a moment to be released before we bind it ourselves.
-        for _ in 0..<40 {
-            if isPortFree(port) { return .clearedOrphan(pid: pid) }
-            usleep(50_000)
+        if waitForPortFree(port, timeout: portReleaseTimeout) {
+            return .clearedOrphan(pid: pid)
         }
         return .blocked(by: name)
     }
@@ -57,12 +70,33 @@ enum PortGuard {
         try? String(pid).write(to: url, atomically: true, encoding: .utf8)
     }
 
+    private static func waitForPortFree(_ port: Int, timeout: TimeInterval) -> Bool {
+        if isPortFree(port) { return true }
+        guard timeout > 0 else { return false }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            usleep(50_000)
+            if isPortFree(port) { return true }
+        }
+        return false
+    }
+
     /// True if nothing is listening — determined by trying to bind the port
-    /// ourselves, without `SO_REUSEADDR`, so an existing listener makes it fail.
+    /// ourselves, exactly the way a server would.
     static func isPortFree(_ port: Int) -> Bool {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { return true }
         defer { close(fd) }
+
+        // Servers set SO_REUSEADDR, so this must too, or the question being
+        // answered is the wrong one: connections the previous server handled
+        // linger in TIME_WAIT on this port and would make a genuinely free port
+        // look busy for a minute after every stop. SO_REUSEADDR still refuses
+        // the bind while something is actively listening, which is what we want
+        // to detect.
+        var reuse: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
 
         var addr = sockaddr_in()
         addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
@@ -107,7 +141,9 @@ enum PortGuard {
     private static func terminate(_ pid: pid_t) {
         guard pid > 0 else { return }
         kill(pid, SIGTERM)
-        for _ in 0..<40 {
+
+        let deadline = Date().addingTimeInterval(processExitTimeout)
+        while Date() < deadline {
             if !isAlive(pid) { return }
             usleep(50_000)
         }

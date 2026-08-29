@@ -29,7 +29,9 @@ fi
 
 MODEL="${MODEL:-}"
 if [ -z "$MODEL" ]; then
-    MODEL="$(find "$MODEL_DIR" -maxdepth 1 -name '*.gguf' 2>/dev/null | sort | head -n1)"
+    # `|| true` so pipefail does not abort here — a missing model directory
+    # should reach the guidance below, not kill the script silently.
+    MODEL="$(find "$MODEL_DIR" -maxdepth 1 -name '*.gguf' 2>/dev/null | sort | head -n1 || true)"
 fi
 if [ -z "$MODEL" ] || [ ! -f "$MODEL" ]; then
     printf 'error: no .gguf in %s\n' "$MODEL_DIR" >&2
