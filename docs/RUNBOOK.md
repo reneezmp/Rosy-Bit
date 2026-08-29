@@ -374,10 +374,11 @@ Measured on Rosy with `ps -o rss= -p $(lsof -ti tcp:1337 -sTCP:LISTEN)`: at
 8192 the whole process is 1.28 GB, which is the 0.9 GiB of cache plus 0.24 GB
 of weights plus buffers. Use that command rather than trusting the table.
 
-Note what the measurement did **not** show: llama-server reports four slots by
-default, but RSS matches a *single* 8192-token cache rather than four. The log
-also reports `kv_unified = 'true'`, so the slots appear to share one cache
-rather than each holding a full context.
+That figure is for `parallelSlots` at 1, so it says nothing about what four
+slots would cost. llama-server reports `kv_unified = 'true'`, which *suggests*
+slots share one cache rather than each holding a full context — but that is
+unverified. If it ever matters, set `parallelSlots -int 4`, restart, and run
+the `ps` line again: roughly 1.3 GB means shared, roughly 4 GB means not.
 
 Rosy Bit still sets `parallelSlots` to **1**, on its own merits: two cores
 cannot usefully generate four replies at once, and requests arrive one at a
