@@ -180,6 +180,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(item("Open Log", #selector(openLog)))
 
         menu.addItem(.separator())
+        menu.addItem(item("Settings…", #selector(showSettings), key: ","))
+
         let login = item("Launch at Login", #selector(toggleLoginItem))
         login.state = LoginItemModel.shared.isEnabled ? .on : .off
         menu.addItem(login)
@@ -274,6 +276,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func showInsights() {
         InsightsWindowController.shared.show()
+    }
+
+    @objc private func showSettings() {
+        SettingsWindowController.shared.show()
     }
 
     @objc private func openModelsFolder() {
