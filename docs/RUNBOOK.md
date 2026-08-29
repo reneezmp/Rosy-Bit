@@ -204,12 +204,20 @@ Because the arm64 slice is in there too, you can test the whole thing on the M4
 before copying anything:
 
 ```bash
+./scripts/fetch-model.sh    # the M4 needs its own copy
 make run
 ```
 
+The model lives in `~/Library/Application Support/RosyBit/`, which is per
+machine — downloading it on Rosy did nothing for the M4. Without it the menu
+says `⚠ No model — open the models folder`, which is the app working correctly,
+not a build problem.
+
 > **Stop Osaurus first.** It also defaults to port 1337 — that is the entire
 > point of choosing 1337 — so the two cannot run at the same time. Rosy Bit will
-> notice and say `⚠ Port 1337 held by osaurus` rather than fighting it.
+> notice and say `⚠ Port 1337 held by osaurus` rather than fighting it. That is
+> worth seeing once: it is the orphan-handling path refusing to kill something
+> that is not ours.
 
 Then package it:
 
