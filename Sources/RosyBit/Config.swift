@@ -67,10 +67,31 @@ enum Config {
         #endif
     }
 
+    /// Restricts which browser origins may call the endpoint.
+    ///
+    /// Binding to loopback keeps the network out, but it does not keep browsers
+    /// out: llama-server reflects any `Origin` back by default, so a page you
+    /// happen to be visiting can use this endpoint from JavaScript. It cannot
+    /// reach anything but the model — there are no tools and no file access —
+    /// so the exposure is CPU time on a fanless machine rather than data. Still
+    /// worth closing if you know which clients you need.
+    ///
+    /// Native clients (curl, scripts, Obsidian's `requestUrl`) send no `Origin`
+    /// and are unaffected. Electron apps calling `fetch()` do send one.
+    ///
+    ///     defaults write com.rosybit.app corsOrigins "app://obsidian.md"
+    ///
+    /// Unset means llama-server's own default, which is to allow all.
+    static var corsOrigins: String? {
+        guard let value = UserDefaults.standard.string(forKey: "corsOrigins"),
+              !value.isEmpty else { return nil }
+        return value
+    }
+
     /// Arguments for the server. Deliberately no `-ngl`: every Bonsai example
     /// assumes CUDA or Apple Silicon Metal, and Rosy has neither.
     static func serverArguments(modelPath: String, alias: String) -> [String] {
-        [
+        var arguments = [
             "--host", host,
             "--port", String(port),
             "-m", modelPath,
@@ -79,6 +100,10 @@ enum Config {
             "--jinja",
             "--alias", alias,
         ]
+        if let corsOrigins {
+            arguments += ["--cors-origins", corsOrigins]
+        }
+        return arguments
     }
 
     // MARK: - Helpers

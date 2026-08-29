@@ -298,6 +298,24 @@ defaults write com.rosybit.app port -int 8080
 killall RosyBit && open /Applications/RosyBit.app
 ```
 
+### Browser origins
+
+llama-server warns at startup that it allows all CORS origins. Loopback keeps
+the *network* out, but not browsers: a page you are visiting can call this
+endpoint from JavaScript. It can only reach the model — no tools, no file
+access — so what is at stake is CPU time on a fanless machine, not data. Native
+clients (curl, scripts, Obsidian's `requestUrl`) send no `Origin` and do not
+care either way.
+
+Once you know which clients you actually need, close it:
+
+```bash
+defaults write com.rosybit.app corsOrigins "app://obsidian.md"
+```
+
+Unset, the server keeps its own permissive default. Set it only after the
+client works, so a broken plugin is never ambiguous between the two causes.
+
 **Swapping models** needs no rebuild either — the `.gguf` lives outside the
 bundle. Drop another one into `~/Library/Application Support/RosyBit/` and pick
 it from the **Model** submenu; the server restarts on the new model. **Open
