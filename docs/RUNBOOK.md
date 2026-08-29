@@ -20,9 +20,10 @@ macOS SDK is still Universal for back deployment. It is not a hack.
 or build any Swift until the smoke test passes.
 
 ```bash
+mkdir -p ~/Developer
 git clone -b claude/rosy-bit-planning-90xr0a \
-  https://github.com/reneezmp/Rosy-Bit.git ~/rosy-bit
-cd ~/rosy-bit
+  https://github.com/reneezmp/Rosy-Bit.git ~/Developer/rosy-bit
+cd ~/Developer/rosy-bit
 ```
 
 ### 1a. Get `llama-server`
@@ -77,8 +78,9 @@ kernel in [#21636]); the fork is only needed for ternary `Q2_0`.
 xcode-select --install
 brew install cmake
 
-git clone --depth 1 --branch b10684 https://github.com/ggml-org/llama.cpp ~/llama.cpp
-cd ~/llama.cpp
+git clone --depth 1 --branch b10684 \
+  https://github.com/ggml-org/llama.cpp ~/Developer/llama.cpp
+cd ~/Developer/llama.cpp
 cmake -B build \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
@@ -87,8 +89,8 @@ cmake -B build \
   -DLLAMA_CURL=OFF
 cmake --build build --config Release -j 2 --target llama-server
 
-mkdir -p ~/rosy-bit/vendor/x86_64
-cp build/bin/llama-server ~/rosy-bit/vendor/x86_64/
+mkdir -p ~/Developer/rosy-bit/vendor/x86_64
+cp build/bin/llama-server ~/Developer/rosy-bit/vendor/x86_64/
 ```
 
 `BUILD_SHARED_LIBS=OFF` gives one self-contained binary with no dylibs to keep
@@ -148,9 +150,10 @@ and use the same value for the app (see [Configuration](#configuration)).
 ## Step 2 — build the app on the M4
 
 ```bash
+mkdir -p ~/Developer
 git clone -b claude/rosy-bit-planning-90xr0a \
-  https://github.com/reneezmp/Rosy-Bit.git ~/rosy-bit
-cd ~/rosy-bit
+  https://github.com/reneezmp/Rosy-Bit.git ~/Developer/rosy-bit
+cd ~/Developer/rosy-bit
 
 ./scripts/fetch-llama-server.sh     # both slices this time
 make app
@@ -160,7 +163,7 @@ If Rosy needed a source build in step 1a, copy that binary over rather than
 letting the script fetch a prebuilt one:
 
 ```bash
-scp rosy:rosy-bit/vendor/x86_64/llama-server vendor/x86_64/
+scp rosy:Developer/rosy-bit/vendor/x86_64/llama-server vendor/x86_64/
 ```
 
 `make app` builds universal, assembles `dist/RosyBit.app`, ad-hoc signs it, and
