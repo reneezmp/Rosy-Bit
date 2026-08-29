@@ -310,22 +310,44 @@ and simple extraction. **It does not reason.** For calibration, Apple's
 on-device Foundation model is roughly 3B and is aimed at the same class of task
 — so this is the right size for the job, not a sad compromise.
 
-Quality holds up better than the size suggests. Given a rambling Portuguese
-legal meeting transcript it produced *"Ineficácia relativa em embargos de
-terceiros"* — the actual doctrine under discussion, not a generic label.
+Quality holds up better than the size suggests — up to a point. Given a
+rambling Portuguese legal meeting transcript it produced *"Ineficácia relativa
+em embargos de terceiros"*, the actual doctrine under discussion rather than a
+generic label.
 
-**Speed is the real constraint, and it is the input that costs, not the
-output.** Measured on Rosy, both rates degrade as the context fills:
+**Keep the output short.** Measured on the same transcript:
 
-| Prompt | Prompt eval | Generation | Total |
-|---|---|---|---|
-| 182 tokens | 26.8 tok/s | 6.6 tok/s | 9 s |
-| 1257 tokens | 13.8 tok/s | 2.2 tok/s | 98 s |
-| ~5700 tokens | ~10 tok/s | ~1 tok/s | ~9 min |
+| Output length | Result |
+|---|---|
+| ~37 tokens (title, tags) | accurate |
+| ~59 tokens (short summary) | accurate |
+| ~214 tokens (full summary) | **drifts** |
+
+At 214 tokens it invented an event that never happened, repeated a clause
+verbatim, and asserted both speakers ended up confused when they had not. This
+is the model's size showing, not a misconfiguration: 1.7B at 1 bit holds a
+short answer together and loses the thread on a long one. With MacWhisper,
+prefer *short summary* over *summary*.
+
+**Speed is the other constraint, and it is the input that costs.** Both rates
+degrade as context fills:
+
+| Prompt | Output | Prompt eval | Generation | Total |
+|---|---|---|---|---|
+| 195 tokens | 59 | 22.3 tok/s | 6.8 tok/s | 17 s |
+| 1393 tokens | 214 | 15.1 tok/s | 3.7 tok/s | 2.5 min |
+| 5652 tokens | 236 | 13.0 tok/s | 1.6 tok/s | 9.7 min |
 
 So: a selection, a note, an email — interactive. A full meeting transcript —
-a background job. Raising `contextSize` makes long input *possible*, never
-fast; nothing about a fanless two-core machine changes that.
+a background job, and one most clients will abandon before it finishes. Raising
+`contextSize` makes long input *possible*, never fast; nothing about a fanless
+two-core machine changes that.
+
+**Which machine for which job.** The port is 1337 on both Rosy and the M4
+precisely so a client config moves between them unchanged. Short helper work —
+titles, tags, tone rewrites on a selection — belongs on Rosy. Whole
+transcripts belong on the M4, where the same `localhost:1337` reaches hardware
+that finishes in seconds rather than minutes.
 
 ### What this is not
 
@@ -380,9 +402,13 @@ slots share one cache rather than each holding a full context — but that is
 unverified. If it ever matters, set `parallelSlots -int 4`, restart, and run
 the `ps` line again: roughly 1.3 GB means shared, roughly 4 GB means not.
 
-Rosy Bit still sets `parallelSlots` to **1**, on its own merits: two cores
-cannot usefully generate four replies at once, and requests arrive one at a
-time in practice. Raise it only if something genuinely needs concurrency.
+Rosy Bit sets `parallelSlots` to **1**, and it turns out to buy speed as well
+as memory. At a ~1300-token prompt, generation measured 2.98 tok/s on four
+slots and 3.70 tok/s on one — about 24% faster. Short prompts were unaffected
+(6.61 vs 6.83 tok/s), which fits a cache-locality explanation: the larger
+shared KV buffer costs more to scan the fuller it gets. The two runs also
+differed in `contextSize`, so treat the figure as indicative rather than
+controlled. Raise it only if something genuinely needs concurrency.
 
 ```bash
 defaults write com.rosybit.app parallelSlots -int 2
