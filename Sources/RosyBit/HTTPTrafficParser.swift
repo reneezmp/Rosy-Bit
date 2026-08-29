@@ -10,7 +10,8 @@ import Foundation
 ///
 /// One instance per TCP connection. HTTP/1.1 keep-alive means a connection
 /// carries a sequence of request/response pairs, which are matched up in order.
-/// Only ever touched from its connection's queue.
+/// Only ever touched from its connection's queue — the same queue that does the
+/// forwarding, which is why the scanning below is careful not to rescan.
 final class HTTPTrafficParser {
 
     /// Called when a response completes and the record is final.
@@ -18,6 +19,11 @@ final class HTTPTrafficParser {
 
     private var requestBuffer = Data()
     private var responseBuffer = Data()
+
+    /// How far each buffer has already been searched for a header terminator,
+    /// so a partial head is not rescanned from the start on every packet.
+    private var requestScanned = 0
+    private var responseScanned = 0
 
     /// Requests seen but not yet answered, oldest first.
     private var pending: [RequestRecord] = []
@@ -27,45 +33,58 @@ final class HTTPTrafficParser {
     private var abandoned = false
 
     private static let headerTerminator = Data("\r\n\r\n".utf8)
+    private static let crlf = Data("\r\n".utf8)
+
+    /// A single head or body larger than this means something is wrong, or the
+    /// traffic is not worth holding. Either way, stop rather than grow forever.
+    private static let maxBufferBytes = 8 * 1024 * 1024
 
     // MARK: - Client → server
 
     func consumeRequest(_ data: Data) {
         guard !abandoned else { return }
         requestBuffer.append(data)
+        guard requestBuffer.count <= Self.maxBufferBytes else { return abandon() }
 
-        while let headerEnd = range(of: Self.headerTerminator, in: requestBuffer) {
-            let headData = requestBuffer.subdata(in: requestBuffer.startIndex..<headerEnd.lowerBound)
-            guard let head = String(data: headData, encoding: .utf8) else { return abandon() }
+        while true {
+            guard let headerEnd = nextHeaderEnd(in: requestBuffer, scanned: &requestScanned) else {
+                return
+            }
 
-            let lines = head.components(separatedBy: "\r\n")
-            guard let requestLine = lines.first else { return abandon() }
+            let headData = requestBuffer.subdata(in: 0..<headerEnd.lowerBound)
+            guard let head = String(data: headData, encoding: .utf8),
+                  let requestLine = head.components(separatedBy: "\r\n").first else {
+                return abandon()
+            }
             let parts = requestLine.split(separator: " ", maxSplits: 2).map(String.init)
             guard parts.count >= 2 else { return abandon() }
 
-            let headers = Self.headers(from: lines.dropFirst())
+            let headers = Self.headers(from: head.components(separatedBy: "\r\n").dropFirst())
             let contentLength = Int(headers["content-length"] ?? "") ?? 0
 
             let bodyStart = headerEnd.upperBound
-            guard requestBuffer.count - bodyStart >= contentLength else { return }  // wait for more
+            guard requestBuffer.count - bodyStart >= contentLength else { return }  // wait
 
             var record = RequestRecord(method: parts[0], path: parts[1])
             if contentLength > 0 {
                 let bodyData = requestBuffer.subdata(in: bodyStart..<(bodyStart + contentLength))
-                let body = String(data: bodyData, encoding: .utf8)
-                record.requestBody = BodySanitiser.sanitise(body)
-                applyRequestParameters(from: body, to: &record)
+                if let whole = String(data: bodyData, encoding: .utf8) {
+                    // Extract structure from the whole body first; truncation
+                    // afterwards would leave JSON that cannot be parsed.
+                    record.promptMessages = RequestRecord.extractMessages(fromWholeBody: whole)
+                    applyRequestParameters(from: whole, to: &record)
+                    record.requestBody = BodySanitiser.sanitise(whole)
+                }
             }
 
             pending.append(record)
             startTimes.append(Date())
-            requestBuffer = requestBuffer.subdata(
-                in: (bodyStart + contentLength)..<requestBuffer.endIndex)
+            consume(&requestBuffer, upTo: bodyStart + contentLength, scanned: &requestScanned)
         }
     }
 
-    private func applyRequestParameters(from body: String?, to record: inout RequestRecord) {
-        guard let body, let data = body.data(using: .utf8),
+    private func applyRequestParameters(from body: String, to record: inout RequestRecord) {
+        guard let data = body.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return
         }
@@ -80,21 +99,39 @@ final class HTTPTrafficParser {
     func consumeResponse(_ data: Data) {
         guard !abandoned else { return }
         responseBuffer.append(data)
+        guard responseBuffer.count <= Self.maxBufferBytes else { return abandon() }
 
-        while let headerEnd = range(of: Self.headerTerminator, in: responseBuffer) {
-            let headData = responseBuffer.subdata(in: responseBuffer.startIndex..<headerEnd.lowerBound)
-            guard let head = String(data: headData, encoding: .utf8) else { return abandon() }
+        while true {
+            guard let headerEnd = nextHeaderEnd(in: responseBuffer, scanned: &responseScanned) else {
+                return
+            }
 
-            let lines = head.components(separatedBy: "\r\n")
-            guard let statusLine = lines.first else { return abandon() }
+            let headData = responseBuffer.subdata(in: 0..<headerEnd.lowerBound)
+            guard let head = String(data: headData, encoding: .utf8),
+                  let statusLine = head.components(separatedBy: "\r\n").first else {
+                return abandon()
+            }
             let statusParts = statusLine.split(separator: " ").map(String.init)
-            guard statusParts.count >= 2, let status = Int(statusParts[1]) else { return abandon() }
+            guard statusParts.count >= 2, let status = Int(statusParts[1]) else {
+                return abandon()
+            }
 
-            let headers = Self.headers(from: lines.dropFirst())
+            let headers = Self.headers(from: head.components(separatedBy: "\r\n").dropFirst())
             let bodyStart = headerEnd.upperBound
-            let available = responseBuffer.subdata(in: bodyStart..<responseBuffer.endIndex)
 
+            // A 1xx is an interim reply that does not answer anything and never
+            // carries a body. `Expect: 100-continue` is routine for a POST body
+            // over about 1 KB — which is every real prompt — so treating one as
+            // a response would consume the pending request and desynchronise
+            // the whole connection.
+            if (100..<200).contains(status) || status == 204 || status == 304 {
+                consume(&responseBuffer, upTo: bodyStart, scanned: &responseScanned)
+                continue
+            }
+
+            let available = responseBuffer.subdata(in: bodyStart..<responseBuffer.endIndex)
             let bodyResult: (body: Data, consumed: Int)?
+
             if headers["transfer-encoding"]?.lowercased().contains("chunked") == true {
                 bodyResult = Self.dechunk(available)
             } else if let length = Int(headers["content-length"] ?? "") {
@@ -102,21 +139,16 @@ final class HTTPTrafficParser {
                 bodyResult = (available.subdata(in: 0..<length), length)
             } else {
                 // No length and no chunking: the body runs until the connection
-                // closes, which we cannot detect from here. Record the head and
-                // stop parsing rather than guess.
+                // closes, which cannot be detected from here. Record the head
+                // and stop parsing rather than guess.
                 finish(status: status, body: nil, contentType: headers["content-type"])
                 return abandon()
             }
 
             guard let bodyResult else { return }  // incomplete chunked body
 
-            finish(
-                status: status,
-                body: bodyResult.body,
-                contentType: headers["content-type"])
-
-            responseBuffer = responseBuffer.subdata(
-                in: (bodyStart + bodyResult.consumed)..<responseBuffer.endIndex)
+            finish(status: status, body: bodyResult.body, contentType: headers["content-type"])
+            consume(&responseBuffer, upTo: bodyStart + bodyResult.consumed, scanned: &responseScanned)
         }
     }
 
@@ -199,7 +231,27 @@ final class HTTPTrafficParser {
         }
     }
 
-    // MARK: - Helpers
+    // MARK: - Buffer handling
+
+    /// Searches only the bytes that have arrived since last time, less the
+    /// three-byte overlap a four-byte terminator could straddle.
+    private func nextHeaderEnd(in buffer: Data, scanned: inout Int) -> Range<Int>? {
+        let from = max(0, min(scanned - (Self.headerTerminator.count - 1), buffer.count))
+        guard from < buffer.count else {
+            scanned = buffer.count
+            return nil
+        }
+        if let found = buffer.range(of: Self.headerTerminator, options: [], in: from..<buffer.count) {
+            return found
+        }
+        scanned = buffer.count
+        return nil
+    }
+
+    private func consume(_ buffer: inout Data, upTo index: Int, scanned: inout Int) {
+        buffer.removeSubrange(0..<index)
+        scanned = 0
+    }
 
     private func abandon() {
         abandoned = true
@@ -213,6 +265,8 @@ final class HTTPTrafficParser {
         startTimes.removeAll()
         requestBuffer.removeAll()
         responseBuffer.removeAll()
+        requestScanned = 0
+        responseScanned = 0
     }
 
     private static func headers(from lines: some Sequence<String>) -> [String: String] {
@@ -229,11 +283,12 @@ final class HTTPTrafficParser {
     /// Reassembles a chunked body. Returns nil while it is still arriving.
     private static func dechunk(_ data: Data) -> (body: Data, consumed: Int)? {
         var body = Data()
-        var offset = data.startIndex
-        let newline = Data("\r\n".utf8)
+        var offset = 0
 
         while true {
-            guard let lineEnd = range(of: newline, in: data, from: offset) else { return nil }
+            guard let lineEnd = data.range(of: crlf, options: [], in: offset..<data.count) else {
+                return nil
+            }
             let sizeLine = data.subdata(in: offset..<lineEnd.lowerBound)
             guard let sizeText = String(data: sizeLine, encoding: .utf8) else { return nil }
 
@@ -246,31 +301,16 @@ final class HTTPTrafficParser {
             let chunkStart = lineEnd.upperBound
             if size == 0 {
                 // Trailer plus the final CRLF.
-                guard let end = range(of: newline, in: data, from: chunkStart) else { return nil }
-                return (body, end.upperBound - data.startIndex)
+                guard let end = data.range(of: crlf, options: [], in: chunkStart..<data.count) else {
+                    return nil
+                }
+                return (body, end.upperBound)
             }
 
             let chunkEnd = chunkStart + size
-            guard data.count >= chunkEnd - data.startIndex + 2 else { return nil }
+            guard data.count >= chunkEnd + 2 else { return nil }
             body.append(data.subdata(in: chunkStart..<chunkEnd))
             offset = chunkEnd + 2  // skip the CRLF after the chunk
         }
-    }
-
-    private func range(of pattern: Data, in data: Data) -> Range<Int>? {
-        Self.range(of: pattern, in: data, from: data.startIndex)
-    }
-
-    private static func range(of pattern: Data, in data: Data, from start: Int) -> Range<Int>? {
-        guard !pattern.isEmpty, data.count >= pattern.count else { return nil }
-        let limit = data.endIndex - pattern.count
-        guard start <= limit else { return nil }
-
-        for index in start...limit {
-            if data.subdata(in: index..<(index + pattern.count)) == pattern {
-                return index..<(index + pattern.count)
-            }
-        }
-        return nil
     }
 }

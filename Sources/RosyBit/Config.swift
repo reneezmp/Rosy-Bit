@@ -95,12 +95,16 @@ enum Config {
 
     /// How many requests llama-server can hold in flight at once.
     ///
-    /// Each slot gets its own full context, so KV memory is `contextSize` ×
-    /// slots. Bonsai is 28 layers with 8 KV heads at head_dim 128, which is
-    /// 112 KiB per token at f16 — four slots at 8192 would be 3.6 GB of cache
-    /// for a machine with two cores that cannot usefully generate four replies
-    /// at once. One slot is the right default here; llama-server's own default
-    /// is 4, which is why this is set explicitly rather than left alone.
+    /// One rather than llama-server's default of four, for two measured
+    /// reasons: two cores cannot usefully generate four replies at once, and
+    /// generation ran about 24% faster on one slot than four at a 1300-token
+    /// prompt (3.70 vs 2.98 tok/s).
+    ///
+    /// Whether slots multiply KV memory is *not* established. Bonsai's cache is
+    /// 112 KiB per token at f16, confirmed by measurement at one slot, but the
+    /// four-slot case was never measured and llama-server reports
+    /// `kv_unified = 'true'` there, which may mean the slots share one cache.
+    /// Don't assume the multiplier without checking — see docs/RUNBOOK.md.
     ///
     ///     defaults write com.rosybit.app parallelSlots -int 2
     static var parallelSlots: Int { intDefault("parallelSlots", fallback: 1, clampedTo: 1...8) }

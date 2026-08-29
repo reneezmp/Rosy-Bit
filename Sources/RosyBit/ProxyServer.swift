@@ -16,16 +16,20 @@ import Network
 /// this accumulate an unbounded buffer.
 final class ProxyServer {
 
-    private(set) var isRunning = false
+    /// Reports a listener failure. `NWListener` surfaces a port conflict
+    /// asynchronously through its state handler rather than by throwing, so
+    /// without this the app would happily report "Running" with nothing on the
+    /// public port at all.
+    var onFailure: ((String) -> Void)?
 
     private var listener: NWListener?
-    private var connections = Set<ObjectIdentifier>()
-    private var connectionsLock = NSLock()
+    private var sessions: [ObjectIdentifier: ProxySession] = [:]
+    private let sessionsLock = NSLock()
 
     private let queue = DispatchQueue(label: "com.rosybit.proxy", qos: .userInitiated)
 
-    /// Starts listening on `port` and forwarding to `upstreamPort`.
-    /// Throws if the port cannot be bound.
+    /// Starts listening on `port` and forwarding to `upstreamPort`. Throws only
+    /// for bad parameters; a bind failure arrives later via `onFailure`.
     func start(port: Int, upstreamPort: Int) throws {
         stop()
 
@@ -45,14 +49,9 @@ final class ProxyServer {
             self?.accept(client: client, upstreamPort: targetPort)
         }
         listener.stateUpdateHandler = { [weak self] state in
-            switch state {
-            case .failed, .cancelled:
-                self?.isRunning = false
-            case .ready:
-                self?.isRunning = true
-            default:
-                break
-            }
+            guard case .failed(let error) = state else { return }
+            let message = error.localizedDescription
+            DispatchQueue.main.async { self?.onFailure?(message) }
         }
         listener.start(queue: queue)
         self.listener = listener
@@ -63,7 +62,15 @@ final class ProxyServer {
         listener?.stateUpdateHandler = nil
         listener?.cancel()
         listener = nil
-        isRunning = false
+
+        // Cancelling the listener only stops new connections. Sessions already
+        // pumping would keep forwarding to an upstream that is about to go
+        // away, so close them too.
+        sessionsLock.lock()
+        let active = sessions.values
+        sessions.removeAll()
+        sessionsLock.unlock()
+        active.forEach { $0.close() }
     }
 
     private func accept(client: NWConnection, upstreamPort: NWEndpoint.Port) {
@@ -73,15 +80,15 @@ final class ProxyServer {
         let session = ProxySession(client: client, upstream: upstream, queue: queue)
         let token = ObjectIdentifier(session)
 
-        connectionsLock.lock()
-        connections.insert(token)
-        connectionsLock.unlock()
+        sessionsLock.lock()
+        sessions[token] = session
+        sessionsLock.unlock()
 
         session.onFinish = { [weak self] in
             guard let self else { return }
-            self.connectionsLock.lock()
-            self.connections.remove(token)
-            self.connectionsLock.unlock()
+            self.sessionsLock.lock()
+            self.sessions.removeValue(forKey: token)
+            self.sessionsLock.unlock()
         }
         session.start()
     }
@@ -197,6 +204,11 @@ private final class ProxySession {
             }
             self.pumpUpstreamToClient()
         }
+    }
+
+    /// Closes from the outside, when the proxy is shutting down.
+    func close() {
+        finish()
     }
 
     private func finish() {

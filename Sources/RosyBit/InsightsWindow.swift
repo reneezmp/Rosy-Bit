@@ -240,7 +240,7 @@ private struct RequestDetailView: View {
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    ForEach(Array(messages.enumerated()), id: \.offset) { _, message in
+                    ForEach(messages) { message in
                         VStack(alignment: .leading, spacing: 4) {
                             Text(message.role.uppercased())
                                 .font(.caption2.bold())

@@ -111,10 +111,8 @@ verify:
 	@archs="$$(lipo -archs "$(CONTENTS)/MacOS/$(APP_NAME)")"; \
 	echo "  app archs      : $$archs"; \
 	case "$$archs" in *x86_64*) ;; *) \
-		echo "error: no x86_64 slice — this cannot run on Rosy."; \
-		echo "       a host-only build on Apple Silicon produces arm64 alone;"; \
-		echo "       build with full Xcode for universal, or build on Rosy."; \
-		exit 1 ;; esac
+		echo "  NOTE           : no x86_64 slice — fine here, but not for Rosy."; \
+		echo "                   make dist refuses to package this." ;; esac
 	@for arch in x86_64 arm64; do \
 		binary="$(CONTENTS)/Resources/llama/$$arch/llama-server"; \
 		if [ -x "$$binary" ]; then \
@@ -128,6 +126,11 @@ verify:
 # `make app` tolerates an arm64-only bundle so the UI can be exercised on the
 # M4. The zip is what actually goes to Rosy, so it does not.
 dist: app
+	@archs="$$(lipo -archs "$(CONTENTS)/MacOS/$(APP_NAME)")"; \
+	case "$$archs" in *x86_64*) ;; *) \
+		echo "error: app has no x86_64 slice ($$archs) — it cannot run on Rosy."; \
+		echo "       build with full Xcode for universal, or build on Rosy itself."; \
+		exit 1 ;; esac
 	@if [ ! -x "$(CONTENTS)/Resources/llama/x86_64/llama-server" ]; then \
 		echo "error: no Intel llama-server in the bundle — this cannot serve on Rosy."; \
 		echo "       run ./scripts/fetch-llama-server.sh x86_64 && make app"; \

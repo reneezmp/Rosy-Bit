@@ -1,5 +1,12 @@
 import Foundation
 
+/// One message from the request's `messages` array, pulled out at capture time.
+struct PromptMessage: Identifiable {
+    let id = UUID()
+    let role: String
+    let content: String
+}
+
 /// One request/response pair as seen by the proxy.
 struct RequestRecord: Identifiable {
 
@@ -18,6 +25,11 @@ struct RequestRecord: Identifiable {
     var requestBody: String?
     var responseBody: String?
     var responseText: String?
+
+    /// Extracted from the body *before* it was truncated. Parsing the stored
+    /// `requestBody` instead would fail on exactly the long transcripts this is
+    /// for, since truncation splices a marker into the middle of the JSON.
+    var promptMessages: [PromptMessage] = []
 
     var model: String?
     var promptTokens: Int?
@@ -44,25 +56,29 @@ struct RequestRecord: Identifiable {
 
     var isChatCompletion: Bool { path.hasSuffix("/chat/completions") }
 
-    /// The messages array, for the Prompt tab's laid-out view.
-    var promptMessages: [(role: String, content: String)] {
-        guard let requestBody,
-              let data = requestBody.data(using: .utf8),
+    /// Pulls the messages out of a *whole* request body. Each message is
+    /// truncated on its own, so a long transcript clips its own content instead
+    /// of destroying the JSON everything else is read from.
+    static func extractMessages(fromWholeBody body: String) -> [PromptMessage] {
+        guard let data = body.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let messages = object["messages"] as? [[String: Any]] else { return [] }
 
         return messages.compactMap { message in
             guard let role = message["role"] as? String else { return nil }
+
             // Content is usually a string, but the OpenAI schema also allows an
             // array of typed parts; pull the text out of those.
-            if let text = message["content"] as? String {
-                return (role, text)
+            let text: String
+            if let string = message["content"] as? String {
+                text = string
+            } else if let parts = message["content"] as? [[String: Any]] {
+                text = parts.compactMap { $0["text"] as? String }.joined(separator: "\n")
+            } else {
+                text = ""
             }
-            if let parts = message["content"] as? [[String: Any]] {
-                let text = parts.compactMap { $0["text"] as? String }.joined(separator: "\n")
-                return (role, text)
-            }
-            return (role, "")
+            return PromptMessage(
+                role: role, content: BodySanitiser.sanitise(text) ?? "")
         }
     }
 }

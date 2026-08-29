@@ -17,16 +17,17 @@ processing task` and `release: … stop processing`. Counting those is free, so
 the indicator holds to the same rule as everything else here: **no timers, no
 polling, nothing that wakes a fanless machine on a schedule.**
 
-One thing to watch when it runs: `MenuBarExtra` may render its whole label as a
-template image, which would flatten the green to monochrome. The dot is drawn
-as a solid disc rather than a tint on the flower precisely so that it still
-reads as an indicator if that happens — the shape carries the meaning and the
-colour is a bonus. If it does come out grey, the fix is a second template asset
-rather than fighting AppKit.
+Getting the colour required moving the menu bar item off `MenuBarExtra`. A menu
+bar icon has to be a template image so macOS can tint and invert it, and a
+template image is monochrome — anything coloured inside a `MenuBarExtra` label
+is flattened with the rest. Osaurus's answer is to leave the image a template
+and add the dot as a sibling `NSView` on the status bar button, where its layer
+keeps its own colour; `MenuBarExtra` never exposes its `NSStatusItem`, so the
+menu is built with `NSMenu` in `StatusItemController` instead.
 
 ---
 
-## 2. Settings window
+## 2. Settings window — done
 
 The mechanism already exists as `defaults` keys: `contextSize`, `threads`,
 `parallelSlots`, `kvCacheType`, `temperature`, `corsOrigins`, `port`. What is
@@ -41,15 +42,16 @@ Design notes:
   OpenAI-compatible client that sends its own `temperature` overrides the
   server's, and most do. A slider that silently does nothing for MacWhisper
   would be worse than no slider.
-- **Show the memory arithmetic.** `contextSize` × `parallelSlots` × 112 KiB per
-  token is the number that actually matters, and it is not obvious. The window
-  should say "8192 × 1 slot ≈ 0.9 GiB" as the values change.
+- **Show the memory arithmetic.** `contextSize` × 112 KiB per token is the
+  number that actually matters, and it is not obvious from a token count. The
+  window should update it as the values change. Whether slots multiply it is
+  unverified — do not state a figure that has not been measured.
 - Changing anything requires restarting the server; the window should say so
   and offer to do it rather than leaving the user to guess.
 
 ---
 
-## 3. Insights
+## 3. Insights — done (proxy route)
 
 The one that changes the architecture. Modelled on Osaurus's Insights pane: a
 list of requests, and per request a Prompt view (system/user turns laid out),
@@ -108,7 +110,6 @@ Worth stealing outright, from `Packages/OsaurusCore/Managers/InsightsService.swi
 
 ## Order
 
-1 → 2 → 3a → decide on 3b.
-
-3b is the only item that can break something that currently works, so it should
-sit on a stable base and be the one thing changing when it lands.
+All three have landed. 3b (the proxy) was taken directly rather than shipping
+3a first, because the Prompt, Request and Response tabs are the point and only
+the proxy can supply them.

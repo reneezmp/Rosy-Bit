@@ -36,7 +36,27 @@ final class SettingsModel: ObservableObject {
         insightsCapacity = Config.insightsCapacity
     }
 
+    /// Why the settings cannot be applied, or nil when they can.
+    ///
+    /// Config clamps silently on read, so an out-of-range value here would be
+    /// saved, ignored, and then disagree with what the window shows — and two
+    /// equal ports would have the proxy forwarding to itself.
+    var validationError: String? {
+        let range = 1024...65535
+        guard range.contains(port) else {
+            return "Port must be between \(range.lowerBound) and \(range.upperBound)."
+        }
+        guard !insightsEnabled || range.contains(upstreamPort) else {
+            return "llama-server port must be between \(range.lowerBound) and \(range.upperBound)."
+        }
+        guard !insightsEnabled || port != upstreamPort else {
+            return "The two ports must differ — the proxy cannot forward to itself."
+        }
+        return nil
+    }
+
     func save() {
+        guard validationError == nil else { return }
         let defaults = UserDefaults.standard
         defaults.set(contextSize, forKey: "contextSize")
         defaults.set(threads, forKey: "threads")
@@ -232,14 +252,21 @@ struct SettingsView: View {
     }
 
     private var footer: some View {
-        HStack {
+        HStack(alignment: .firstTextBaseline) {
             Button("Restore Defaults") { model.restoreDefaults() }
             Spacer()
+            if let problem = model.validationError {
+                Text(problem)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .multilineTextAlignment(.trailing)
+            }
             Button("Apply & Restart Server") {
                 model.save()
                 ServerController.shared.restart()
             }
             .keyboardShortcut(.defaultAction)
+            .disabled(model.validationError != nil)
         }
         .padding(12)
     }

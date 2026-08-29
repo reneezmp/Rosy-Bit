@@ -314,16 +314,31 @@ final class ServerController: ObservableObject {
     /// way out, which does not need a rebuild.
     private func startProxyIfEnabled() {
         guard Config.insightsEnabled else { return }
+
+        // A bind conflict arrives through onFailure rather than by throwing:
+        // NWListener reports it asynchronously once it has tried the port.
+        proxy.onFailure = { message in
+            ServerController.shared.handleProxyFailure(message)
+        }
         do {
             try proxy.start(port: Config.port, upstreamPort: Config.upstreamPort)
         } catch {
-            state = .failed(
-                "Insights proxy could not take port \(Config.port). "
-                + "Run: defaults write com.rosybit.app insightsEnabled -bool false")
+            handleProxyFailure(error.localizedDescription)
         }
     }
 
+    /// The endpoint is down when this happens — llama-server is on the upstream
+    /// port and nothing is on the public one — so name the way out, which does
+    /// not need a rebuild.
+    private func handleProxyFailure(_ message: String) {
+        proxy.stop()
+        state = .failed(
+            "Port \(Config.port) unavailable (\(message)). Turn Insights off in Settings, "
+            + "or: defaults write com.rosybit.app insightsEnabled -bool false")
+    }
+
     private func cleanUp() {
+        proxy.onFailure = nil
         proxy.stop()
         // Invalidate anything still in flight from the run being torn down.
         generation += 1
