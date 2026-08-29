@@ -361,20 +361,27 @@ gets back `request (N tokens) exceeds the available context size`, which is the
 server refusing cleanly, not a crash. Roughly 750 words per 1000 tokens, so
 8192 covers about 6000 words.
 
-**It costs real memory, multiplied by the slot count.** Bonsai is Qwen3-1.7B —
-28 layers, 8 KV heads, head_dim 128 — which works out to 112 KiB of KV cache
-per token at f16. Each slot holds its own full context:
+**It costs real memory.** Bonsai is Qwen3-1.7B — 28 layers, 8 KV heads,
+head_dim 128 — which is 112 KiB of KV cache per token at f16:
 
-| `contextSize` | Per slot | 1 slot | 4 slots |
-|---|---|---|---|
-| 2048 | 229 MiB | 0.2 GiB | 0.9 GiB |
-| 8192 | 917 MiB | 0.9 GiB | 3.6 GiB |
-| 32768 | 3.6 GiB | 3.6 GiB | 14.3 GiB |
+| `contextSize` | KV cache | Measured RSS |
+|---|---|---|
+| 2048 | 229 MiB | — |
+| 8192 | 917 MiB | **1.28 GB** |
+| 32768 | 3.6 GiB | ~4 GB (extrapolated) |
 
-Rosy Bit sets `parallelSlots` to **1** rather than llama-server's default of 4:
-two cores cannot usefully generate four replies at once, and the other three
-slots are pure memory cost. Raise it only if something really does need
-concurrent requests.
+Measured on Rosy with `ps -o rss= -p $(lsof -ti tcp:1337 -sTCP:LISTEN)`: at
+8192 the whole process is 1.28 GB, which is the 0.9 GiB of cache plus 0.24 GB
+of weights plus buffers. Use that command rather than trusting the table.
+
+Note what the measurement did **not** show: llama-server reports four slots by
+default, but RSS matches a *single* 8192-token cache rather than four. The log
+also reports `kv_unified = 'true'`, so the slots appear to share one cache
+rather than each holding a full context.
+
+Rosy Bit still sets `parallelSlots` to **1**, on its own merits: two cores
+cannot usefully generate four replies at once, and requests arrive one at a
+time in practice. Raise it only if something genuinely needs concurrency.
 
 ```bash
 defaults write com.rosybit.app parallelSlots -int 2
