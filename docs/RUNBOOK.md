@@ -310,6 +310,23 @@ and simple extraction. **It does not reason.** For calibration, Apple's
 on-device Foundation model is roughly 3B and is aimed at the same class of task
 — so this is the right size for the job, not a sad compromise.
 
+Quality holds up better than the size suggests. Given a rambling Portuguese
+legal meeting transcript it produced *"Ineficácia relativa em embargos de
+terceiros"* — the actual doctrine under discussion, not a generic label.
+
+**Speed is the real constraint, and it is the input that costs, not the
+output.** Measured on Rosy, both rates degrade as the context fills:
+
+| Prompt | Prompt eval | Generation | Total |
+|---|---|---|---|
+| 182 tokens | 26.8 tok/s | 6.6 tok/s | 9 s |
+| 1257 tokens | 13.8 tok/s | 2.2 tok/s | 98 s |
+| ~5700 tokens | ~10 tok/s | ~1 tok/s | ~9 min |
+
+So: a selection, a note, an email — interactive. A full meeting transcript —
+a background job. Raising `contextSize` makes long input *possible*, never
+fast; nothing about a fanless two-core machine changes that.
+
 ### What this is not
 
 Not a replacement for Apple's Foundation Models. `FoundationModels` is an
@@ -327,9 +344,26 @@ without a rebuild:
 
 ```bash
 defaults write com.rosybit.app threads -int 1        # if the UI stutters
-defaults write com.rosybit.app contextSize -int 4096
+defaults write com.rosybit.app contextSize -int 8192
 defaults write com.rosybit.app port -int 8080
 killall RosyBit && open /Applications/RosyBit.app
+```
+
+**`contextSize` is the one you will actually hit.** The default 2048 is enough
+for titles and tags but not for a meeting transcript — a client sending more
+gets back `request (N tokens) exceeds the available context size`, which is the
+server refusing cleanly, not a crash. Roughly 750 words per 1000 tokens, so
+8192 covers about 6000 words.
+
+It costs memory: llama-server runs 4 slots by default and each gets its own
+context, so KV usage scales with `contextSize` × 4. At 8192 that is under a
+gigabyte for this model — fine on 16 GB, worth knowing before going higher.
+
+Check the log after raising it; llama-server warns there if the value exceeds
+what the model was trained for:
+
+```bash
+grep -i "n_ctx_train\|greater than" ~/Library/Logs/RosyBit/llama-server.log
 ```
 
 ### Browser origins
