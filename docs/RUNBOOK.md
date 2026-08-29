@@ -346,8 +346,14 @@ without a rebuild:
 defaults write com.rosybit.app threads -int 1        # if the UI stutters
 defaults write com.rosybit.app contextSize -int 8192
 defaults write com.rosybit.app port -int 8080
-killall RosyBit && open /Applications/RosyBit.app
+osascript -e 'quit app "RosyBit"' && open /Applications/RosyBit.app
 ```
+
+Quit it with an Apple Event rather than `killall`. SIGTERM kills an AppKit app
+outright without running `applicationWillTerminate`, which is precisely the
+force-quit case that leaves `llama-server` holding the port. Rosy Bit clears
+that orphan on its next launch, so nothing breaks either way — but there is no
+reason to create the mess when quitting politely is the same length.
 
 **`contextSize` is the one you will actually hit.** The default 2048 is enough
 for titles and tags but not for a meeting transcript — a client sending more
