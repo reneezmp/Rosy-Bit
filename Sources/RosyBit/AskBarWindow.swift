@@ -91,6 +91,9 @@ final class AskBarWindowController: NSWindowController, NSWindowDelegate {
     private var hostingController: NSHostingController<AskBarView>?
     private var cancellables = Set<AnyCancellable>()
 
+    /// Belt and braces against the recursion described above ever returning.
+    private var isResizing = false
+
     private static let collapsedHeight: CGFloat = 56
     private static let maximumHeight: CGFloat = 460
 
@@ -113,9 +116,11 @@ final class AskBarWindowController: NSWindowController, NSWindowDelegate {
 
         let controller = NSHostingController(
             rootView: AskBarView(model: model, onDismiss: { [weak self] in self?.hide() }))
-        // Keeps preferredContentSize tracking what the SwiftUI content actually
-        // wants, which is the number the window has to follow.
-        controller.sizingOptions = [.preferredContentSize]
+        // Deliberately no `sizingOptions`. With .preferredContentSize, AppKit
+        // resizes the window itself whenever the content's ideal size changes —
+        // and this class resizes it too, so each setFrame triggered a relayout,
+        // which changed the ideal size, which triggered another resize. That
+        // recursion is what made the app vanish on the first token.
         panel.contentViewController = controller
         hostingController = controller
 
@@ -132,27 +137,24 @@ final class AskBarWindowController: NSWindowController, NSWindowDelegate {
         fatalError("init(coder:) is not used")
     }
 
-    /// Grows the panel to whatever the card wants to be.
+    /// Grows the panel to fit what the card is showing.
     ///
-    /// A borderless window does not resize itself around its content, and the
-    /// content cannot simply be measured either: SwiftUI compresses a view to
-    /// the space it is given, so measuring inside a 56pt window reports 56 no
-    /// matter what is in it. That is why the answer was invisible — it was
-    /// being laid out into a window that never grew. The card is marked
-    /// `fixedSize` vertically so it takes its ideal height regardless of the
-    /// window, and the ideal height is read from the hosting controller rather
-    /// than from a laid-out geometry proxy.
+    /// The height is computed here rather than measured from the view, because
+    /// both ways of asking SwiftUI are traps in a borderless window: a laid-out
+    /// geometry proxy reports the size the content was squeezed into, and
+    /// asking for the ideal size feeds a loop with whatever resizes the window.
+    /// Text measurement through AppKit is deterministic and answers before the
+    /// layout exists, which is exactly what is needed to decide how much room
+    /// to give it.
     private func resizeToFitContent() {
-        guard let window, let hostingController else { return }
+        guard let window, !isResizing else { return }
 
-        var desired = hostingController.preferredContentSize.height
-        if desired <= 0 {
-            desired = hostingController.view.fittingSize.height
-        }
-        let target = min(max(desired, Self.collapsedHeight), Self.maximumHeight)
-
+        let target = min(max(desiredHeight(), Self.collapsedHeight), Self.maximumHeight)
         var frame = window.frame
         guard abs(frame.height - target) > 0.5 else { return }
+
+        isResizing = true
+        defer { isResizing = false }
 
         // Anchored at the top, so the field stays put and the answer opens
         // downwards rather than shoving the bar up the screen.
@@ -160,6 +162,32 @@ final class AskBarWindowController: NSWindowController, NSWindowDelegate {
         frame.size.height = target
         frame.origin.y = top - target
         window.setFrame(frame, display: true, animate: false)
+    }
+
+    private func desiredHeight() -> CGFloat {
+        var height = Self.collapsedHeight
+        guard model.hasOutput else { return height }
+        height += 1  // divider
+
+        if let error = model.errorMessage {
+            return height + textHeight(error) + 32
+        }
+        if !model.answer.isEmpty {
+            return height + min(textHeight(model.answer) + 32, 320) + 34  // + copy row
+        }
+        return height + 46  // "Thinking…"
+    }
+
+    /// Laid out at the same width and text style the card uses, so the estimate
+    /// tracks what is actually drawn.
+    private func textHeight(_ text: String) -> CGFloat {
+        let attributed = NSAttributedString(
+            string: text,
+            attributes: [.font: NSFont.preferredFont(forTextStyle: .callout)])
+        let bounds = attributed.boundingRect(
+            with: NSSize(width: 560 - 32, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading])
+        return ceil(bounds.height)
     }
 
     /// True once a shortcut is actually held. `RegisterEventHotKey` fails when
@@ -236,10 +264,12 @@ struct AskBarView: View {
                 output
             }
         }
-        // Takes its ideal height instead of shrinking into whatever the window
-        // currently is; the controller then grows the window to match.
-        .fixedSize(horizontal: false, vertical: true)
+        // No `fixedSize` here: it proposes a nil height, and the ScrollView
+        // below has no ideal height to answer with, which is a well-worn route
+        // to NaN in the layout maths. The window is sized by the controller, and
+        // the card simply fills it from the top.
         .frame(width: 560)
+        .frame(maxHeight: .infinity, alignment: .top)
         .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
