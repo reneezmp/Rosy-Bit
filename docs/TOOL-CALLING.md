@@ -244,7 +244,8 @@ in place of it. The entry is the answer; the model is the presenter.
   Rosy's clock speeds while the suite ran.
 - Only single-call turns were tested. Chained calls, parallel calls, and
   recovery from a tool that returns an error are all untested.
-- 8B has not been measured at all. Given the 4B result, presuming anything
-  about it would be a second mistake of the same kind.
+- 8B has not been measured and will not be from Rosy — it is not installed
+  there and is not a sensible thing to ask of her. Given the 4B result, nothing
+  should be presumed about it either way.
 - Whether 4B's failure is the model or its chat template is unresolved.
 - The injection cases are illustrative, not a threat model.

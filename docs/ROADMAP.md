@@ -58,7 +58,17 @@ fast path here, not a tax. The measurement and its caveats are in
 [`TOOL-CALLING.md`](TOOL-CALLING.md).
 
 She does get tired: identical work runs 49% slower by the third pass. Nothing in
-the tool layer may poll, batch speculatively, or warm caches in the background.
+the tool layer may poll or speculate — no background work on the chance it turns
+out useful.
+
+Warming the cached prefix once is not that, and the distinction is worth being
+precise about. The system prompt and the 152-token tool block are needed by
+*every* request, so prefilling them is certain work done early rather than
+speculative work done hopefully. A `max_tokens: 0` request prefills the prefix
+and generates nothing, after which the next question prefills only the user's
+own words — 15 tokens instead of 203. That belongs on server readiness, where it
+completes long before anybody asks anything. `scripts/prefix-warm-probe.py`
+measures both the cost and the saving.
 
 Two findings shape the build:
 
