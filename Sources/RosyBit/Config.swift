@@ -239,13 +239,17 @@ enum Config {
     /// so a *third* distinct prefix — a second external client, or one that
     /// varies its prompt per task — can take the slot Rosy Bit was using.
     ///
-    /// `id_slot` is documented for llama.cpp's own `/completion` endpoint but is
-    /// not listed among the options for `/v1/chat/completions`, so whether it is
-    /// honoured on the path used here is unconfirmed. Sending it is harmless if
-    /// it is ignored — llama-server does not reject unknown fields — and the log
-    /// says which slot actually served the request, so the answer is one request
-    /// away. Set to -1 to stop sending it.
-    static var internalSlot: Int { intDefault("internalSlot", fallback: 0, clampedTo: -1...7) }
+    /// Measured, and the answer is no: `id_slot` is **not** honoured on
+    /// `/v1/chat/completions`. A server running with a single slot accepted
+    /// `id_slot: 7` without complaint, which it could not do if the value were
+    /// being read. It is documented for llama.cpp's own `/completion` endpoint
+    /// and evidently ignored on this one.
+    ///
+    /// So it defaults to off rather than sending a field that does nothing and
+    /// implies a protection that is not there. The cached prefix is instead
+    /// looked after by warming it at startup — see `ChatClient.warmPrefix()`.
+    /// The setting stays in case upstream ever starts reading the field.
+    static var internalSlot: Int { intDefault("internalSlot", fallback: -1, clampedTo: -1...7) }
 
     /// The ask bar's shortcut. Stored as a virtual key code and a Carbon
     /// modifier mask, both settable in Settings — ⌥Space is a popular choice

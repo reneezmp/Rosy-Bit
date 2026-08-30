@@ -72,6 +72,13 @@ struct ChatClient {
         onCompletion: @escaping (Result<Void, Error>) -> Void
     ) -> Task<Void, Never> {
         Task {
+            // Costs the caller nothing. The prefix has to be prefilled either
+            // way, so waiting for a warm already doing it is the same work in a
+            // different order — and it keeps this question on the slot the warm
+            // just populated rather than racing onto an empty one.
+            await warmInFlight()
+            if Task.isCancelled { return }
+
             do {
                 guard let url = Config.chatCompletionsURL else { throw ChatError.notConfigured }
 
@@ -88,9 +95,9 @@ struct ChatClient {
                     "stream": true,
                     "messages": messages.map { ["role": $0.role, "content": $0.content] },
                 ]
-                // Ask for a slot of our own so another client cannot evict the
-                // cached system prompt. Unconfirmed on this endpoint — see
-                // Config.internalSlot — but ignored harmlessly if unsupported.
+                // Off by default: `id_slot` is not honoured on this endpoint.
+                // See Config.internalSlot. Kept as a setting in case upstream
+                // ever starts reading it.
                 let slot = Config.internalSlot
                 if slot >= 0 {
                     payload["id_slot"] = slot
@@ -126,5 +133,78 @@ struct ChatClient {
                 await MainActor.run { onCompletion(.failure(error)) }
             }
         }
+    }
+
+    // MARK: - Prefix warming
+
+    /// llama-server caches the longest common prefix per slot, so the system
+    /// prompt — and, once tools are enabled, the tool block with them — is
+    /// prefilled once and reused. Nothing warms it until a first question pays
+    /// for it, which on Rosy is the difference between an 18 second answer and
+    /// a 4 second one.
+    ///
+    /// A `max_tokens: 0` request prefills that prefix and generates nothing.
+    /// Measured on the M4: without it a question prefills 203 tokens, with it
+    /// 15 — only the user's own words. This is certain work done early rather
+    /// than speculative work done hopefully, which is the line that separates
+    /// it from the background polling this project refuses to do. Every request
+    /// that will ever arrive needs this prefix.
+    @MainActor private static var warmTask: Task<Void, Never>?
+
+    /// Whether a warm is running, for a hint in the ask bar. The field stays
+    /// typeable regardless: typing happens here and prefilling happens in
+    /// llama-server, and they do not contend.
+    @MainActor static var isWarming: Bool { warmTask != nil }
+
+    /// Starts a warm, replacing any already running — being called again means
+    /// the prefix itself changed, so the one in flight is warming the wrong
+    /// thing.
+    @MainActor static func warmPrefix() {
+        warmTask?.cancel()
+        warmTask = Task {
+            defer { warmTask = nil }
+            await performWarm()
+        }
+    }
+
+    /// Awaits any warm in flight. Returns immediately when there is none, which
+    /// is the overwhelmingly common case — the warm finishes at login and the
+    /// first question usually arrives hours later.
+    @MainActor static func warmInFlight() async {
+        await warmTask?.value
+    }
+
+    private static func performWarm() async {
+        guard let url = Config.chatCompletionsURL else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("RosyBit", forHTTPHeaderField: "X-RosyBit-Source")
+        // Long enough for a cold model on two cores, far short of a generation:
+        // nothing is being generated here.
+        request.timeoutInterval = 180
+
+        // Exactly the prefix a real question will present, and no more. The
+        // empty user turn is deliberate — it reproduces the opening of the user
+        // block, so the cached prefix runs right up to the first real token.
+        var messages: [[String: String]] = []
+        if let systemPrompt = Config.systemPrompt {
+            messages.append(["role": "system", "content": systemPrompt])
+        }
+        messages.append(["role": "user", "content": ""])
+
+        let payload: [String: Any] = [
+            "model": "rosybit",
+            "stream": false,
+            "max_tokens": 0,
+            "messages": messages,
+        ]
+        guard let body = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        request.httpBody = body
+
+        // A failed warm is not worth reporting. It costs the next question the
+        // prefill it would have paid anyway, and nothing else.
+        _ = try? await URLSession.shared.data(for: request)
     }
 }

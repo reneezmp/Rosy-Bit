@@ -12,12 +12,31 @@ final class AskBarModel: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var focusRequest = 0
 
+    /// Whether the prefix is still being prefilled. Shown as a hint, never as a
+    /// gate: the field stays typeable throughout, because typing happens here
+    /// and prefilling happens in llama-server and the two do not contend. If a
+    /// question is submitted first it simply waits for the warm, which costs
+    /// nothing — that prefill had to happen either way.
+    @Published private(set) var isPreparing = false
+
     private var task: Task<Void, Never>?
 
     var hasOutput: Bool { !answer.isEmpty || isStreaming || errorMessage != nil }
 
     func requestPromptFocus() {
         focusRequest &+= 1
+    }
+
+    /// Called when the bar opens. The warm normally finished at login and this
+    /// does nothing at all.
+    @MainActor
+    func refreshPreparingState() {
+        isPreparing = ChatClient.isWarming
+        guard isPreparing else { return }
+        Task { [weak self] in
+            await ChatClient.warmInFlight()
+            self?.isPreparing = false
+        }
     }
 
     func submit() {
@@ -407,6 +426,7 @@ final class AskBarWindowController: NSWindowController, NSWindowDelegate {
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         model.requestPromptFocus()
+        model.refreshPreparingState()
     }
 
     func hide() {
@@ -489,6 +509,15 @@ struct AskBarView: View {
                     // focus avoids that surprising overwrite-ready state.
                     promptFocused = false
                 }
+
+            // A hint, not a gate. It says why a first question might pause
+            // and then gets out of the way on its own.
+            if model.isPreparing, !model.isStreaming {
+                Text("Preparing context…")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .transition(.opacity)
+            }
 
             if model.isStreaming {
                 Button {

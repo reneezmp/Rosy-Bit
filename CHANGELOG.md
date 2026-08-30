@@ -5,12 +5,24 @@ records user-visible changes; the detailed engineering history remains in Git.
 
 ## Unreleased
 
+### Added
+
+- The cached prefix is now prefilled when the server becomes ready, instead of
+  being charged to whoever asks the first question. A question then prefills
+  only its own words — 15 tokens rather than 203 in measurement. If one is
+  submitted while that is still running it waits for it, which costs nothing:
+  the prefill had to happen either way. The ask bar shows an unobtrusive
+  "Preparing context…" while it runs and stays typeable throughout.
+
 ### Fixed
 
 - The Ask bar never appeared on macOS 13 and 15. Assigning a hosting controller
   with no sizing options let AppKit adopt a zero content size, so the panel
   opened at 0x0 — present, on screen, and invisible. It also now recovers its
   width rather than only its height, so a lost frame heals on the next open.
+- `id_slot` was being sent on every internal request while having no effect.
+  A single-slot server accepts `id_slot: 7` without complaint, so the field is
+  not read on this endpoint; it now defaults to off.
 - Insights showed "No response body" for every tool call. A tool response
   carries an empty `content` and puts the substance in `tool_calls`, which was
   never read; the empty string then shadowed the raw-body fallback. Tool calls

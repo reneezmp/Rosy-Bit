@@ -317,6 +317,13 @@ final class ServerController: ObservableObject {
     private func markReady(token: Int) {
         guard token == generation, state == .starting else { return }
         state = .running
+
+        // Prefill the cached prefix now, while nobody is waiting, rather than
+        // charging it to whoever asks the first question. Once per server
+        // start, and never repeated — see ChatClient.warmPrefix().
+        // Hopped explicitly: markReady is reached from the health probe and the
+        // log scanner, neither of which is statically main-isolated.
+        Task { @MainActor in ChatClient.warmPrefix() }
     }
 
     private func handleTermination(token: Int, status: Int32, signalled: Bool) {
