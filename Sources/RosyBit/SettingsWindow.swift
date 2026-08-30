@@ -374,7 +374,11 @@ struct SettingsView: View {
             Stepper("Threads: \(model.values.threads)", value: $model.values.threads, in: 1...16)
             Stepper("Parallel slots: \(model.values.parallelSlots)",
                     value: $model.values.parallelSlots, in: 1...8)
-            Text("One slot measured about 24% faster at a 1300-token prompt than four.")
+            Text("Each slot keeps its own cached prompt, and llama-server sends a request "
+                 + "to whichever slot shares the most of its beginning. Two lets Rosy Bit's "
+                 + "own questions and another app's requests each keep a warm prefix "
+                 + "instead of evicting one another. Four measured about 24% slower than "
+                 + "one at a long prompt, so more is not better.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

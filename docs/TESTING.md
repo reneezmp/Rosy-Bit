@@ -172,7 +172,28 @@ ones. Quartering the cache quarters that traffic.
 
 ---
 
-## 9. Unmeasured, if you are curious
+## 9. Two slots — does the affinity actually happen?
+
+`parallelSlots` now defaults to 2 so Rosy Bit's own questions and another
+client's requests stop evicting each other's cached prefix. Slots cannot be
+assigned; llama-server picks by longest-common-prefix similarity, so the
+separation is emergent and worth confirming rather than assuming.
+
+- [ ] Ask something in the ask bar, then send a transcript from MacWhisper,
+      then ask again. In the log, the two should settle on **different slot
+      ids** (`launch_slot_: id 0` and `id 1`)
+- [ ] The second ask-bar question should report far fewer prompt tokens than
+      the first, since the system prompt is still cached
+- [ ] Watch `prompt eval time` on a long transcript against the one-slot
+      numbers. Four slots measured about 24% slower than one; two is untested
+      and might cost something
+- [ ] `ps -o rss= -p $(lsof -ti tcp:11337 -sTCP:LISTEN)` — this is also the
+      cheapest chance to settle whether slots multiply KV memory. Roughly
+      1.3 GB means shared, roughly 2.2 GB at 8192 means not
+
+---
+
+## 10. Unmeasured, if you are curious
 
 - [ ] Whether slots multiply KV memory. Set `parallelSlots` to 4, restart,
       then `ps -o rss= -p $(lsof -ti tcp:11337 -sTCP:LISTEN)`. About 1.3 GB

@@ -151,19 +151,26 @@ enum Config {
 
     /// How many requests llama-server can hold in flight at once.
     ///
-    /// One rather than llama-server's default of four, for two measured
-    /// reasons: two cores cannot usefully generate four replies at once, and
-    /// generation ran about 24% faster on one slot than four at a 1300-token
-    /// prompt (3.70 vs 2.98 tok/s).
+    /// Two, so Rosy Bit's own traffic and other clients' stop evicting each
+    /// other's cached prefix.
     ///
-    /// Whether slots multiply KV memory is *not* established. Bonsai's cache is
-    /// 112 KiB per token at f16, confirmed by measurement at one slot, but the
-    /// four-slot case was never measured and llama-server reports
-    /// `kv_unified = 'true'` there, which may mean the slots share one cache.
-    /// Don't assume the multiplier without checking — see docs/RUNBOOK.md.
+    /// Slots cannot be assigned: llama-server picks one by longest-common-prefix
+    /// similarity, falling back to least-recently-used. That is enough for what
+    /// is wanted here, because the affinity is emergent — the ask bar's requests
+    /// all begin with the same system prompt and another client's begin with
+    /// something else, so with two slots each stream settles onto its own and
+    /// keeps its prefix warm. With one slot they take turns evicting each other
+    /// and a system prompt is reprocessed on every question.
     ///
-    ///     defaults write com.rosybit.app parallelSlots -int 2
-    static var parallelSlots: Int { intDefault("parallelSlots", fallback: 1, clampedTo: 1...8) }
+    /// The trade is unmeasured in this direction. Four slots ran about 24%
+    /// slower than one at a 1300-token prompt (2.98 against 3.70 tok/s);
+    /// whether two costs anything is untested, and whether slots multiply KV
+    /// memory at all is still unverified — llama-server reports
+    /// `kv_unified = 'true'` above one slot, which may mean they share one
+    /// cache. Worth measuring rather than assuming; see docs/TESTING.md.
+    ///
+    ///     defaults write com.rosybit.app parallelSlots -int 1
+    static var parallelSlots: Int { intDefault("parallelSlots", fallback: 2, clampedTo: 1...8) }
 
     /// Quantises the KV cache, e.g. `q8_0` to roughly halve the memory above
     /// for very little quality cost. Unset leaves llama-server on f16.
