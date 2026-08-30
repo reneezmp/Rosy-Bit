@@ -213,6 +213,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             let empty = NSMenuItem(title: "No .gguf files found", action: nil, keyEquivalent: "")
             empty.isEnabled = false
             submenu.addItem(empty)
+            submenu.addItem(item("Download a Model…", #selector(showModelSetup)))
         } else {
             for url in models {
                 let entry = item(
@@ -291,6 +292,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func openModelsFolder() {
         ModelStore.shared.revealModelFolder()
+    }
+
+    @objc private func showModelSetup() {
+        ModelSetupWindowController.shared.show()
     }
 
     @objc private func toggleLoginItem() {

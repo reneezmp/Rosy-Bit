@@ -28,6 +28,15 @@ enum Config {
 
     static var healthURL: URL? { URL(string: "http://\(host):\(port)/health") }
 
+    /// Where the first-run downloader looks. The Hugging Face API is asked which
+    /// files exist rather than guessing at the exact casing of the filename.
+    static var modelRepository: String {
+        nonEmptyString("modelRepository") ?? "prism-ml/Bonsai-1.7B-gguf"
+    }
+
+    /// Which quantisation to prefer among the `.gguf` files in that repository.
+    static var modelQuant: String { nonEmptyString("modelQuant") ?? "Q1_0" }
+
     /// Models live outside the bundle so they can be swapped without rebuilding.
     static var modelDirectory: URL {
         libraryDirectory
