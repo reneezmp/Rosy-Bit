@@ -29,7 +29,15 @@ print("watching for RosyBit windows — trigger the ask bar now (12s)\n")
 while Date().timeIntervalSince(started) < 12 {
     let options: CGWindowListOption = [.optionAll, .excludeDesktopElements]
     let raw = (CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]]) ?? []
-    let mine = raw.filter { ($0[kCGWindowOwnerName as String] as? String) == "RosyBit" }
+    // The owner name is the bundle display name, "Rosy Bit" with a space, and
+    // not the executable "RosyBit". Matching the wrong one reports no windows
+    // on a perfectly healthy machine, which is a very convincing way to be
+    // wrong — so this matches loosely and prints the owner it settled on.
+    let mine = raw.filter {
+        ($0[kCGWindowOwnerName as String] as? String)?
+            .lowercased().replacingOccurrences(of: " ", with: "")
+            .contains("rosybit") ?? false
+    }
 
     let snapshot = mine.map { w -> String in
         let layer = w[kCGWindowLayer as String] as? Int ?? -999

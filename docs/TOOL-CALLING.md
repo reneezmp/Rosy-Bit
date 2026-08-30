@@ -99,53 +99,79 @@ pass, which is why the harness takes `--repeat` and why an early MISSED on
 
 ## Result — Rosy, 2026-08-30
 
-**Bonsai 1.7B Q1_0 on the 2017 fanless Core m3, one pass, 26 requests.**
+**Bonsai 1.7B Q1_0 on the 2017 fanless Core m3, 26 cases, 3 passes, 78 requests.**
 
 | Verdict | Count | Share |
 | --- | --- | --- |
-| PASS | 25 | 96% |
-| WRONG-ARG | 1 | 4% |
+| PASS | 74 | 95% |
+| WRONG-ARG | 3 | 4% |
+| MISSED | 1 | 1% |
 | MALFORMED, hallucinated, or false positive | **0** | 0% |
 
-Median latency 4.13 s; 18.01 s on the first request and roughly 4 s on every one
-after it.
+Median latency 5.29 s, maximum 26.1 s.
 
 The machine the project exists for runs the tool loop, and runs it as well as
-the M4 does. That was the question. Two details are worth more than the
-headline.
+the M4 does — 95% against 94%, which is the same number twice. Nothing about
+one bit or two cores stops Bonsai driving a tool. Four details are worth more
+than the headline.
+
+### The tool path is the fast path
+
+Across both machines this is the most consistent result in the suite. On Rosy,
+over 78 requests:
+
+| | n | median |
+| --- | --- | --- |
+| A tool fired | 51 | **4.30 s** |
+| No tool fired | 27 | **7.50 s** |
+
+A declined tool means the model writes a full prose answer; a fired one means
+about twenty tokens and a stop. Grounding is roughly **1.7× faster** than
+improvising, which inverts the usual trade. On Rosy the dictionary tool should
+feel like a speed-up, not a tax paid for accuracy — a rare and pleasant place
+to be.
+
+### She gets tired
+
+Tool-call latency drifts upward across passes on identical work:
+
+| | pass 1 | pass 2 | pass 3 |
+| --- | --- | --- | --- |
+| Tool-call median | 3.70 s | 5.00 s | 5.50 s |
+
+That is **+49% over about fifteen minutes of sustained load**, monotonic. The
+obvious reading is thermal throttling on a fanless machine, and it has not been
+confirmed against actual clock speeds — growing KV cache and background load
+would look similar. Whatever the mechanism, the design consequence stands: Rosy
+gets slower the harder she is worked, so a tool layer must not poll, batch
+speculatively, or warm anything in the background. Work she was asked for, and
+nothing else.
 
 ### The first request pays for the system prompt
 
-18 s, then a settled ~4 s. Two costs are folded into that first number — the
-model warming up, and the system prompt being prefilled into the slot's KV cache
-before it can be reused by later requests. They have not been separated, so
-neither should be quoted alone.
+The single pass run earlier cost 18.0 s on its first request and about 4 s
+afterwards. This three-pass run began against an already-warm server, and its
+first request took 4.1 s — which is the corroboration, not a separate result.
+The 18 s is warm-up and system-prompt prefill together and they have not been
+separated.
 
 Either way it vindicates a V1 decision that looked like pedantry at the time.
 `ChatClient` deliberately puts the timestamp on the *user* turn rather than
 beside the system prompt, so the reusable prefix stays byte-identical between
 requests. On the M4 that choice was worth milliseconds and was effectively
-invisible. On Rosy it is the difference between 18 s and 4 s, on every single
-turn. Had the timestamp gone in the system prompt, that prefill would be paid
-again every time.
+invisible. On Rosy it is worth about fourteen seconds a turn.
 
-### The tool path is the fast path
+### The failure reproduced, every single time
 
-The tool calls are the *quick* requests: 2.7–4.8 s. The cases where no tool
-fired are the slow ones, 4.6–9.9 s, because a declined tool means the model
-writes a full prose answer instead of twenty tokens and a stop.
-
-So on Rosy, grounding is not a tax paid for accuracy. A dictionary lookup that
-returns a real definition is both more correct *and* faster than letting a 1-bit
-model extemporise about Apollo and Athena. The dictionary tool should feel like
-a speed-up, which is a rare and pleasant place to be.
-
-### The failure reproduced exactly
-
-*"Set volume to 200"* produced `volume_set(level=20)` on Rosy too. The same
-wrong, schema-valid, in-range answer on entirely different hardware. That
-settles it as a property of the model rather than a run of bad luck, and the
+*"Set volume to 200"* produced `volume_set(level=20)` in all three Rosy passes,
+having produced it in two of three on the M4 — five times in six across two
+architectures. It is a property of the model, not a run of bad luck, and the
 confirmation rule for state-changing tools is not negotiable.
+
+The one MISSED was case 14 again, *"How loud is my Mac right now?"*, in one pass
+of three. That is the same borderline phrasing the M4 found, failing at a
+similar rate, which is what a decision-boundary case looks like rather than a
+gap in the description.
 
 ## The case for the dictionary tool, restated
 
@@ -162,10 +188,10 @@ in place of it. The entry is the answer; the model is the presenter.
 
 ## What this does not answer
 
-- Rosy has had one pass, not three. Her per-case variance is uncharacterised,
-  and the 4 s median comes from a single sample per case.
 - Whether the 18 s first request is model warm-up, prefill, or both is
   unseparated.
+- The +49% drift is unconfirmed as thermal throttling. Nobody has watched
+  Rosy's clock speeds while the suite ran.
 - Only single-call turns were tested. Chained calls, parallel calls, and
   recovery from a tool that returns an error are all untested.
 - 4B and 8B were not measured. They are presumed no worse, which is not the

@@ -49,12 +49,16 @@ the dictionaries already enabled on the machine. It is the safest first tool:
 local, bounded, reversible, and useful for a small model.
 
 Whether a 1-bit model could drive a tool loop at all was the open question, and
-it has been answered on both machines. Across 78 requests on the M4 and a full
-pass on Rosy herself, Bonsai 1.7B Q1_0 produced no malformed arguments, invented
-no tools, and fired no tool where none was wanted. Rosy answers in about four
-seconds, and answers *faster* when a tool fires than when one does not — a
-declined tool means a page of prose instead of twenty tokens. The measurement
-and its caveats are in [`TOOL-CALLING.md`](TOOL-CALLING.md).
+it has been answered on both machines. Across 78 requests on each, Bonsai 1.7B
+Q1_0 produced no malformed arguments, invented no tools, and fired no tool where
+none was wanted — 95% on Rosy against 94% on the M4. Rosy answers in about four
+seconds when a tool fires and about seven and a half when one does not, because
+a declined tool means a page of prose instead of twenty tokens. Grounding is the
+fast path here, not a tax. The measurement and its caveats are in
+[`TOOL-CALLING.md`](TOOL-CALLING.md).
+
+She does get tired: identical work runs 49% slower by the third pass. Nothing in
+the tool layer may poll, batch speculatively, or warm caches in the background.
 
 Two findings shape the build:
 
