@@ -12,6 +12,20 @@ import Carbon.HIToolbox
 /// and this project has none.
 final class GlobalHotKey {
 
+    /// Carbon's virtual key codes and modifier masks, re-exposed so callers do
+    /// not have to import Carbon themselves — containing it here is the whole
+    /// point of this type.
+    struct Modifiers: OptionSet {
+        let rawValue: UInt32
+
+        static let command = Modifiers(rawValue: UInt32(cmdKey))
+        static let shift = Modifiers(rawValue: UInt32(shiftKey))
+        static let option = Modifiers(rawValue: UInt32(optionKey))
+        static let control = Modifiers(rawValue: UInt32(controlKey))
+    }
+
+    static let spaceKey = UInt32(kVK_Space)
+
     /// The C callback cannot capture context, so registered actions are kept
     /// here and looked up by the id the event carries.
     private static var actions: [UInt32: () -> Void] = [:]
@@ -21,17 +35,17 @@ final class GlobalHotKey {
     private let identifier: UInt32
     private var hotKeyRef: EventHotKeyRef?
 
-    /// `keyCode` is a virtual key code (`kVK_Space` and friends); `modifiers`
-    /// are Carbon masks (`optionKey`, `cmdKey`, …), not `NSEvent` ones.
-    init?(keyCode: UInt32, modifiers: UInt32, action: @escaping () -> Void) {
+    /// `keyCode` is a virtual key code — use `GlobalHotKey.spaceKey` and
+    /// friends rather than importing Carbon at the call site.
+    init?(keyCode: UInt32, modifiers: Modifiers, action: @escaping () -> Void) {
         Self.installDispatcherIfNeeded()
 
         identifier = Self.nextIdentifier
         Self.nextIdentifier += 1
 
-        var hotKeyID = EventHotKeyID(signature: OSType(0x5242_5954), id: identifier)  // 'RBYT'
+        let hotKeyID = EventHotKeyID(signature: OSType(0x5242_5954), id: identifier)  // 'RBYT'
         let status = RegisterEventHotKey(
-            keyCode, modifiers, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
+            keyCode, modifiers.rawValue, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
 
         guard status == noErr, hotKeyRef != nil else { return nil }
         Self.actions[identifier] = action

@@ -98,8 +98,7 @@ final class AskBarWindowController: NSWindowController, NSWindowDelegate {
 
     func registerHotKey() {
         guard Config.askBarEnabled, hotKey == nil else { return }
-        // ⌥Space. Carbon masks, not NSEvent ones.
-        hotKey = GlobalHotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey)) { [weak self] in
+        hotKey = GlobalHotKey(keyCode: GlobalHotKey.spaceKey, modifiers: .option) { [weak self] in
             self?.toggle()
         }
     }

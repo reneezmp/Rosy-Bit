@@ -30,6 +30,16 @@ final class ModelDownloader: NSObject, ObservableObject {
         }
     }
 
+    /// Carries a message meant to be read by a person, since every failure here
+    /// ends up as text in the setup window.
+    struct Failure: LocalizedError {
+        let errorDescription: String?
+
+        init(_ message: String) {
+            errorDescription = message
+        }
+    }
+
     @Published private(set) var state: State = .idle
 
     /// Called once a model has landed and been verified.
@@ -61,8 +71,8 @@ final class ModelDownloader: NSObject, ObservableObject {
             switch result {
             case .success(let filename):
                 self.beginDownload(of: filename)
-            case .failure(let message):
-                self.state = .failed(message)
+            case .failure(let error):
+                self.state = .failed(error.localizedDescription)
             }
         }
     }
@@ -76,10 +86,10 @@ final class ModelDownloader: NSObject, ObservableObject {
 
     // MARK: - Steps
 
-    private func resolveFilename(completion: @escaping (Result<String, String>) -> Void) {
+    private func resolveFilename(completion: @escaping (Result<String, Failure>) -> Void) {
         let repository = Config.modelRepository
         guard let url = URL(string: "https://huggingface.co/api/models/\(repository)") else {
-            return completion(.failure("Invalid model repository: \(repository)"))
+            return completion(.failure(Failure("Invalid model repository: \(repository)")))
         }
 
         var request = URLRequest(url: url)
@@ -88,15 +98,15 @@ final class ModelDownloader: NSObject, ObservableObject {
         URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
                 if let error {
-                    return completion(.failure("Could not reach Hugging Face: \(error.localizedDescription)"))
+                    return completion(.failure(Failure("Could not reach Hugging Face: \(error.localizedDescription)")))
                 }
                 guard let status = (response as? HTTPURLResponse)?.statusCode, status == 200 else {
-                    return completion(.failure("Hugging Face returned an error for \(repository)"))
+                    return completion(.failure(Failure("Hugging Face returned an error for \(repository)")))
                 }
                 guard let data,
                       let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let siblings = object["siblings"] as? [[String: Any]] else {
-                    return completion(.failure("Could not read the file list for \(repository)"))
+                    return completion(.failure(Failure("Could not read the file list for \(repository)")))
                 }
 
                 let names = siblings.compactMap { $0["rfilename"] as? String }
@@ -104,7 +114,7 @@ final class ModelDownloader: NSObject, ObservableObject {
                 let wanted = Config.modelQuant.lowercased()
                 guard let match = ggufs.first(where: { $0.lowercased().contains(wanted) }) ?? ggufs.first
                 else {
-                    return completion(.failure("No .gguf file found in \(repository)"))
+                    return completion(.failure(Failure("No .gguf file found in \(repository)")))
                 }
                 completion(.success(match))
             }
