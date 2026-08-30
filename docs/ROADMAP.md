@@ -154,6 +154,37 @@ whole history — provided nothing else hits the server in between and evicts it
 
 ---
 
+## Ideas not yet taken
+
+### Per-origin browser prompts instead of an allow-list
+
+Start closed, and when a browser origin calls for the first time show
+deny / allow once / always allow, remembering the last of those.
+
+Nicer than asking someone to type an origin into a field, and it is how
+permissions should work. Two things make it more than it looks. The proxy would
+have to hold a request open while a dialog is answered, and browsers cache
+preflights, so a wrong answer is sticky in a way that is hard to explain. And
+the origin is chosen by whoever is calling, so a hostile page can spam the
+prompt.
+
+Worth doing, but the exposure it closes is CPU time rather than data — the model
+has no tools and no file access — so it ranks below anything on the current bug
+list.
+
+### Other Bonsai sizes in the Model menu
+
+`ModelDownloader` already resolves a filename from a repository and verifies
+what it fetches, so listing 4B and 8B alongside 1.7B and downloading on demand
+is mostly menu plumbing.
+
+Worth a warning next to the bigger ones: compute scales with parameters, so on
+Rosy a 4B would be roughly 2.5x slower than the 1.7B and an 8B nearer 5x. At
+1.5 tok/s today, an 8B would be well under half a token per second. They make
+much more sense on the M4.
+
+---
+
 ## Order
 
 Five of six have landed; the chat window is the one left. 3b (the proxy) was

@@ -19,6 +19,15 @@ final class AskBarModel: ObservableObject {
 
         answer = ""
         errorMessage = nil
+
+        // Say why nothing will happen, rather than letting a refused connection
+        // read as the model declining to answer.
+        let server = ServerController.shared
+        guard server.state == .running || server.state == .starting else {
+            errorMessage = "Rosy Bit is not serving — \(server.state.menuTitle)"
+            return
+        }
+
         isStreaming = true
 
         var messages: [ChatClient.Message] = []
@@ -88,7 +97,29 @@ final class AskBarWindowController: NSWindowController, NSWindowDelegate {
         super.init(window: panel)
         panel.delegate = self
         panel.contentViewController = NSHostingController(
-            rootView: AskBarView(model: model, onDismiss: { [weak self] in self?.hide() }))
+            rootView: AskBarView(
+                model: model,
+                onDismiss: { [weak self] in self?.hide() },
+                onHeightChange: { [weak self] height in self?.resize(toContentHeight: height) }))
+    }
+
+    /// A borderless panel does not grow with its SwiftUI content: the frame
+    /// stays whatever it was created as, and anything laid out below is simply
+    /// clipped away — which is why an answer could stream in perfectly and
+    /// still be invisible. The view reports its height and the window follows,
+    /// anchored at the top so the field stays put and the answer opens
+    /// downwards.
+    private func resize(toContentHeight height: CGFloat) {
+        guard let window, height > 0 else { return }
+
+        var frame = window.frame
+        let top = frame.maxY
+        let target = min(max(height, 56), 420)
+        guard abs(frame.height - target) > 0.5 else { return }
+
+        frame.size.height = target
+        frame.origin.y = top - target
+        window.setFrame(frame, display: true, animate: false)
     }
 
     @available(*, unavailable)
@@ -96,11 +127,23 @@ final class AskBarWindowController: NSWindowController, NSWindowDelegate {
         fatalError("init(coder:) is not used")
     }
 
+    /// True once a shortcut is actually held. `RegisterEventHotKey` fails when
+    /// the combination belongs to something else, and that failure is otherwise
+    /// invisible — the shortcut simply does nothing.
+    private(set) var hotKeyRegistered = false
+
     func registerHotKey() {
-        guard Config.askBarEnabled, hotKey == nil else { return }
-        hotKey = GlobalHotKey(keyCode: GlobalHotKey.spaceKey, modifiers: .option) { [weak self] in
+        hotKey = nil
+        hotKeyRegistered = false
+        guard Config.askBarEnabled else { return }
+
+        hotKey = GlobalHotKey(
+            keyCode: UInt32(Config.hotKeyCode),
+            modifiers: GlobalHotKey.Modifiers(rawValue: UInt32(Config.hotKeyModifiers))
+        ) { [weak self] in
             self?.toggle()
         }
+        hotKeyRegistered = hotKey != nil
     }
 
     func toggle() {
@@ -145,6 +188,7 @@ struct AskBarView: View {
 
     @ObservedObject var model: AskBarModel
     let onDismiss: () -> Void
+    let onHeightChange: (CGFloat) -> Void
 
     @FocusState private var promptFocused: Bool
 
@@ -156,6 +200,12 @@ struct AskBarView: View {
                 output
             }
         }
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { onHeightChange(proxy.size.height) }
+                    .onChange(of: proxy.size.height) { onHeightChange($0) }
+            })
         .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(

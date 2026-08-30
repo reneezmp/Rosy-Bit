@@ -143,16 +143,28 @@ enum Config {
     ///     defaults write com.rosybit.app kvCacheType q8_0
     static var kvCacheType: String? { nonEmptyString("kvCacheType") }
 
-    /// Sampling temperature the server falls back to. Note that an
-    /// OpenAI-compatible client sending its own `temperature` overrides this
-    /// per request, which most of them do.
+    /// Sampling defaults come from Bonsai's model card rather than llama.cpp,
+    /// whose own are hotter — temperature 0.8 against the card's 0.5, top-k 40
+    /// against 20 — in the direction that makes a small model wander and
+    /// repeat. The card is the better authority for the model actually being
+    /// served, so it is what ships; each value stays individually overridable.
     ///
-    ///     defaults write com.rosybit.app temperature -float 0.3
-    static var temperature: Double? {
-        guard let value = UserDefaults.standard.object(forKey: "temperature") as? Double else {
-            return nil
-        }
-        return min(max(value, 0), 2)
+    /// Card: temperature 0.5 (range 0.5–0.7), top-k 20 (20–40),
+    /// top-p 0.9 (0.85–0.95), repetition penalty 1.0, presence penalty 0.0.
+    enum ModelCard {
+        static let temperature = 0.5
+        static let topK = 20
+        static let topP = 0.9
+        static let repeatPenalty = 1.0
+        static let presencePenalty = 0.0
+    }
+
+    /// Sampling temperature. Note that an OpenAI-compatible client sending its
+    /// own `temperature` overrides this per request, which most of them do.
+    ///
+    ///     defaults write com.rosybit.app temperature -float 0.7
+    static var temperature: Double {
+        optionalDouble("temperature", clampedTo: 0...2) ?? ModelCard.temperature
     }
 
     /// Penalises tokens the model has already used, which is the usual lever
@@ -161,11 +173,8 @@ enum Config {
     /// mild setting.
     ///
     ///     defaults write com.rosybit.app repeatPenalty -float 1.1
-    static var repeatPenalty: Double? {
-        guard let value = UserDefaults.standard.object(forKey: "repeatPenalty") as? Double else {
-            return nil
-        }
-        return min(max(value, 1), 2)
+    static var repeatPenalty: Double {
+        optionalDouble("repeatPenalty", clampedTo: 1...2) ?? ModelCard.repeatPenalty
     }
 
     /// Sampling, per Bonsai's model card. llama.cpp's own defaults differ —
@@ -175,11 +184,22 @@ enum Config {
     ///
     /// The card gives: temperature 0.5 (0.5–0.7), top-k 20 (20–40),
     /// top-p 0.9 (0.85–0.95), repetition penalty 1.0, presence penalty 0.0.
-    static var topK: Int? { optionalInt("topK", clampedTo: 1...200) }
+    static var topK: Int { optionalInt("topK", clampedTo: 1...200) ?? ModelCard.topK }
 
-    static var topP: Double? { optionalDouble("topP", clampedTo: 0...1) }
+    static var topP: Double { optionalDouble("topP", clampedTo: 0...1) ?? ModelCard.topP }
 
-    static var presencePenalty: Double? { optionalDouble("presencePenalty", clampedTo: -2...2) }
+    static var presencePenalty: Double {
+        optionalDouble("presencePenalty", clampedTo: -2...2) ?? ModelCard.presencePenalty
+    }
+
+    /// The ask bar's shortcut. Stored as a virtual key code and a Carbon
+    /// modifier mask, both settable in Settings — ⌥Space is a popular choice
+    /// among launchers, so it needs to be changeable.
+    static var hotKeyCode: Int { intDefault("hotKeyCode", fallback: 49, clampedTo: 0...255) }
+
+    static var hotKeyModifiers: Int {
+        intDefault("hotKeyModifiers", fallback: 2048, clampedTo: 0...8192)  // optionKey
+    }
 
     /// `on`, `off` or `auto`. Quantising the V cache needs flash attention on
     /// some builds; if the server stops starting after setting `kvCacheType`,
@@ -219,21 +239,13 @@ enum Config {
         if let kvCacheType {
             arguments += ["--cache-type-k", kvCacheType, "--cache-type-v", kvCacheType]
         }
-        if let temperature {
-            arguments += ["--temp", String(temperature)]
-        }
-        if let repeatPenalty {
-            arguments += ["--repeat-penalty", String(repeatPenalty)]
-        }
-        if let topK {
-            arguments += ["--top-k", String(topK)]
-        }
-        if let topP {
-            arguments += ["--top-p", String(topP)]
-        }
-        if let presencePenalty {
-            arguments += ["--presence-penalty", String(presencePenalty)]
-        }
+        arguments += [
+            "--temp", String(temperature),
+            "--top-k", String(topK),
+            "--top-p", String(topP),
+            "--repeat-penalty", String(repeatPenalty),
+            "--presence-penalty", String(presencePenalty),
+        ]
         if let flashAttention {
             arguments += ["--flash-attn", flashAttention]
         }

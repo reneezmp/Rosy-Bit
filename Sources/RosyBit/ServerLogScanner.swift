@@ -21,7 +21,14 @@ final class ServerLogScanner {
     }
 
     /// Wording has drifted between llama.cpp releases, so match several.
+    ///
+    /// `listening on` is the one that actually fires on b10684, whose line
+    /// reads `llama_server: listening on http://…`. The others matched no
+    /// release this app has run against — readiness was reaching the menu only
+    /// through the `/health` probe, which fires when the menu is opened, so the
+    /// status sat on "Starting…" until someone looked at it.
     private static let readyMarkers = [
+        "listening on",
         "server is listening",
         "starting the main loop",
         "HTTP server listening",
