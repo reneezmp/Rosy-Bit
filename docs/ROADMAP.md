@@ -178,10 +178,15 @@ list.
 what it fetches, so listing 4B and 8B alongside 1.7B and downloading on demand
 is mostly menu plumbing.
 
-Worth a warning next to the bigger ones: compute scales with parameters, so on
-Rosy a 4B would be roughly 2.5x slower than the 1.7B and an 8B nearer 5x. At
-1.5 tok/s today, an 8B would be well under half a token per second. They make
-much more sense on the M4.
+Size and input length multiply, which is the useful way to think about it
+rather than sorting models by machine. A 4B is roughly 2.5x the compute of the
+1.7B, so on Rosy a short one-shot prompt goes from about 7 tok/s to about 3 —
+fifteen seconds for a title, which is fine, and confirmed in use. The same 4B
+against a 5000-token transcript multiplies a wait that is already ten minutes.
+
+So the menu should carry a hint about the pairing, not a blanket warning: bigger
+models suit short prompts on Rosy and anything on the M4; long input is what
+rules them out, on either machine.
 
 ---
 

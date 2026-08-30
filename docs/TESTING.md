@@ -63,10 +63,16 @@ endpoint — which also tells us the fault is in the proxy rather than elsewhere
 - [ ] Set a port to 80 → same
 - [ ] Change threads → Apply & Restart → new value in the log's first lines
 - [ ] Restore Defaults resets the fields
-- [ ] **"Use the values from Bonsai's model card"** sets temperature 0.5,
-      top-k 20, top-p 0.9, repetition penalty 1.1. Apply, then retry the
-      transcript that looped — running at llama.cpp's default 0.8 rather than
-      the card's 0.5 is a plausible part of why it looped
+- [ ] Sampling already *starts* at the card's values — temperature 0.5,
+      top-k 20, top-p 0.9, repetition penalty 1.0 — rather than llama.cpp's
+      hotter defaults. Retry the transcript that looped: running at 0.8 is a
+      plausible part of why it did
+- [ ] **"Reset to the model card"** puts those values back after fiddling
+- [ ] Apply is greyed out until something changes, says "Saved", greys out
+      again. Changing only the system prompt or the shortcut must **not**
+      restart the server (no model reload in the log)
+- [ ] The ask bar shortcut is changeable, and a combination another app owns
+      shows the orange warning rather than silently doing nothing
 - [ ] System Prompt survives Apply and a relaunch, line breaks intact
 - [ ] `--top-k`, `--top-p`, `--temp`, `--repeat-penalty` appear in the log's
       second line after applying
