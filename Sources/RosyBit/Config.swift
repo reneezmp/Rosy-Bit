@@ -168,6 +168,24 @@ enum Config {
         return min(max(value, 1), 2)
     }
 
+    /// Sampling, per Bonsai's model card. llama.cpp's own defaults differ —
+    /// temperature 0.8 against the card's 0.5, top-k 40 against 20 — so leaving
+    /// these unset means running the model hotter than its authors suggest,
+    /// which is exactly the condition a small model loops in.
+    ///
+    /// The card gives: temperature 0.5 (0.5–0.7), top-k 20 (20–40),
+    /// top-p 0.9 (0.85–0.95), repetition penalty 1.0, presence penalty 0.0.
+    static var topK: Int? { optionalInt("topK", clampedTo: 1...200) }
+
+    static var topP: Double? { optionalDouble("topP", clampedTo: 0...1) }
+
+    static var presencePenalty: Double? { optionalDouble("presencePenalty", clampedTo: -2...2) }
+
+    /// `on`, `off` or `auto`. Quantising the V cache needs flash attention on
+    /// some builds; if the server stops starting after setting `kvCacheType`,
+    /// this is the first thing to try. Unset leaves llama-server's own choice.
+    static var flashAttention: String? { nonEmptyString("flashAttention") }
+
     /// Restricts which browser origins may call the endpoint.
     ///
     /// Binding to loopback keeps the network out, but it does not keep browsers
@@ -207,6 +225,18 @@ enum Config {
         if let repeatPenalty {
             arguments += ["--repeat-penalty", String(repeatPenalty)]
         }
+        if let topK {
+            arguments += ["--top-k", String(topK)]
+        }
+        if let topP {
+            arguments += ["--top-p", String(topP)]
+        }
+        if let presencePenalty {
+            arguments += ["--presence-penalty", String(presencePenalty)]
+        }
+        if let flashAttention {
+            arguments += ["--flash-attn", flashAttention]
+        }
         if let corsOrigins {
             arguments += ["--cors-origins", corsOrigins]
         }
@@ -227,6 +257,16 @@ enum Config {
             return nil
         }
         return value
+    }
+
+    private static func optionalInt(_ key: String, clampedTo range: ClosedRange<Int>) -> Int? {
+        guard let value = UserDefaults.standard.object(forKey: key) as? Int else { return nil }
+        return min(max(value, range.lowerBound), range.upperBound)
+    }
+
+    private static func optionalDouble(_ key: String, clampedTo range: ClosedRange<Double>) -> Double? {
+        guard let value = UserDefaults.standard.object(forKey: key) as? Double else { return nil }
+        return min(max(value, range.lowerBound), range.upperBound)
     }
 
     private static func intDefault(_ key: String, fallback: Int, clampedTo range: ClosedRange<Int>) -> Int {

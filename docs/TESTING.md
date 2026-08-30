@@ -63,8 +63,13 @@ endpoint — which also tells us the fault is in the proxy rather than elsewhere
 - [ ] Set a port to 80 → same
 - [ ] Change threads → Apply & Restart → new value in the log's first lines
 - [ ] Restore Defaults resets the fields
-- [ ] **Discourage repetition at 1.10**, then retry the transcript that looped.
-      This is the fix for the runaway generations
+- [ ] **"Use the values from Bonsai's model card"** sets temperature 0.5,
+      top-k 20, top-p 0.9, repetition penalty 1.1. Apply, then retry the
+      transcript that looped — running at llama.cpp's default 0.8 rather than
+      the card's 0.5 is a plausible part of why it looped
+- [ ] System Prompt survives Apply and a relaunch, line breaks intact
+- [ ] `--top-k`, `--top-p`, `--temp`, `--repeat-penalty` appear in the log's
+      second line after applying
 
 ---
 
@@ -143,7 +148,25 @@ silently — say so and it becomes configurable.
 
 ---
 
-## 8. Unmeasured, if you are curious
+## 8. Worth measuring: quantised KV cache
+
+Generation reads the whole cache per token — at a 5,000-token context that is
+roughly 560 MB of memory traffic for every token produced, which is the likely
+reason speed collapses from 6.8 tok/s at short prompts to 1.4 tok/s at long
+ones. Quartering the cache quarters that traffic.
+
+- [ ] Set **Cache precision → q8_0**, Apply, and rerun a long transcript.
+      Compare `eval time` tok/s in the log against the f16 run
+- [ ] If the server refuses to start, set **Flash attention → on** and retry —
+      some builds require it for a quantised V cache
+- [ ] Judge the output quality too, not just the speed. The weights are already
+      at 1 bit, so there is less headroom than usual and cache error adds to
+      weight error rather than hiding behind it
+- [ ] Only try q4_0 if q8_0 looks clean
+
+---
+
+## 9. Unmeasured, if you are curious
 
 - [ ] Whether slots multiply KV memory. Set `parallelSlots` to 4, restart,
       then `ps -o rss= -p $(lsof -ti tcp:11337 -sTCP:LISTEN)`. About 1.3 GB

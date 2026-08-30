@@ -18,6 +18,14 @@ final class SettingsModel: ObservableObject {
     @Published var temperature = 0.8
     @Published var overrideRepeatPenalty = false
     @Published var repeatPenalty = 1.1
+    @Published var overrideTopK = false
+    @Published var topK = 20
+    @Published var overrideTopP = false
+    @Published var topP = 0.9
+    @Published var overridePresencePenalty = false
+    @Published var presencePenalty = 0.0
+    @Published var flashAttention = ""
+    @Published var systemPrompt = ""
     @Published var corsOrigins = ""
     @Published var port = 1337
     @Published var insightsEnabled = true
@@ -33,6 +41,14 @@ final class SettingsModel: ObservableObject {
         temperature = Config.temperature ?? 0.8
         overrideRepeatPenalty = Config.repeatPenalty != nil
         repeatPenalty = Config.repeatPenalty ?? 1.1
+        overrideTopK = Config.topK != nil
+        topK = Config.topK ?? 20
+        overrideTopP = Config.topP != nil
+        topP = Config.topP ?? 0.9
+        overridePresencePenalty = Config.presencePenalty != nil
+        presencePenalty = Config.presencePenalty ?? 0
+        flashAttention = Config.flashAttention ?? ""
+        systemPrompt = Config.systemPrompt ?? ""
         corsOrigins = Config.corsOrigins ?? ""
         port = Config.port
         insightsEnabled = Config.insightsEnabled
@@ -80,10 +96,41 @@ final class SettingsModel: ObservableObject {
         } else {
             defaults.removeObject(forKey: "temperature")
         }
-        if overrideRepeatPenalty {
-            defaults.set(repeatPenalty, forKey: "repeatPenalty")
+        setOrRemove(flashAttention, forKey: "flashAttention")
+        setOrRemove(systemPrompt, forKey: "systemPrompt", trimming: false)
+
+        set(repeatPenalty, forKey: "repeatPenalty", when: overrideRepeatPenalty)
+        set(topP, forKey: "topP", when: overrideTopP)
+        set(presencePenalty, forKey: "presencePenalty", when: overridePresencePenalty)
+
+        if overrideTopK {
+            defaults.set(topK, forKey: "topK")
         } else {
-            defaults.removeObject(forKey: "repeatPenalty")
+            defaults.removeObject(forKey: "topK")
+        }
+    }
+
+    /// The values Bonsai's model card recommends. llama.cpp's own defaults are
+    /// hotter — temperature 0.8, top-k 40 — which is the wrong direction for a
+    /// small model that already tends to loop on long answers.
+    func applyModelCardDefaults() {
+        overrideTemperature = true
+        temperature = 0.5
+        overrideTopK = true
+        topK = 20
+        overrideTopP = true
+        topP = 0.9
+        overrideRepeatPenalty = true
+        repeatPenalty = 1.1
+        overridePresencePenalty = false
+        presencePenalty = 0
+    }
+
+    private func set(_ value: Double, forKey key: String, when enabled: Bool) {
+        if enabled {
+            UserDefaults.standard.set(value, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
         }
     }
 
@@ -91,7 +138,8 @@ final class SettingsModel: ObservableObject {
         let defaults = UserDefaults.standard
         for key in [
             "contextSize", "threads", "parallelSlots", "kvCacheType", "temperature",
-            "repeatPenalty", "corsOrigins", "port", "insightsEnabled", "upstreamPort",
+            "repeatPenalty", "topK", "topP", "presencePenalty", "flashAttention",
+            "systemPrompt", "corsOrigins", "port", "insightsEnabled", "upstreamPort",
             "insightsCapacity",
         ] {
             defaults.removeObject(forKey: key)
@@ -99,12 +147,14 @@ final class SettingsModel: ObservableObject {
         load()
     }
 
-    private func setOrRemove(_ value: String, forKey key: String) {
-        let trimmed = value.trimmingCharacters(in: .whitespaces)
-        if trimmed.isEmpty {
+    private func setOrRemove(_ value: String, forKey key: String, trimming: Bool = true) {
+        // A system prompt keeps its own line breaks and indentation; a port or
+        // a cache type does not.
+        let stored = trimming ? value.trimmingCharacters(in: .whitespaces) : value
+        if stored.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             UserDefaults.standard.removeObject(forKey: key)
         } else {
-            UserDefaults.standard.set(trimmed, forKey: key)
+            UserDefaults.standard.set(stored, forKey: key)
         }
     }
 
@@ -165,6 +215,8 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             Form {
                 modelSection
+                samplingSection
+                systemPromptSection
                 performanceSection
                 endpointSection
                 insightsSection
@@ -193,34 +245,87 @@ struct SettingsView: View {
                 Text("q8_0 — half the memory").tag("q8_0")
                 Text("q4_0 — a quarter").tag("q4_0")
             }
+            Text("Generation reads the whole cache for every token produced, so a smaller "
+                 + "one may also be faster at long contexts. q8_0 is close to lossless; "
+                 + "q4_0 is not, and this model has little quality to spare.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
-            Toggle("Set a default temperature", isOn: $model.overrideTemperature)
+            Picker("Flash attention", selection: $model.flashAttention) {
+                Text("llama-server decides").tag("")
+                Text("on").tag("on")
+                Text("off").tag("off")
+                Text("auto").tag("auto")
+            }
+            Text("Some builds need this on before they will accept a quantised cache.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var samplingSection: some View {
+        Section("Sampling") {
+            Text("Bonsai's model card asks for temperature 0.5 and top-k 20. llama.cpp "
+                 + "defaults to 0.8 and 40 — hotter than the model wants, which is the "
+                 + "direction that makes a small model wander and repeat.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Button("Use the values from Bonsai's model card") {
+                model.applyModelCardDefaults()
+            }
+
+            Toggle("Temperature", isOn: $model.overrideTemperature)
             if model.overrideTemperature {
-                HStack {
-                    Slider(value: $model.temperature, in: 0...2, step: 0.05)
-                    Text(String(format: "%.2f", model.temperature))
-                        .font(.callout.monospaced())
-                        .frame(width: 44, alignment: .trailing)
-                }
+                slider($model.temperature, range: 0...2, step: 0.05)
                 Text("A client that sends its own temperature overrides this, and most do.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            Toggle("Discourage repetition", isOn: $model.overrideRepeatPenalty)
-            if model.overrideRepeatPenalty {
-                HStack {
-                    Slider(value: $model.repeatPenalty, in: 1...1.5, step: 0.05)
-                    Text(String(format: "%.2f", model.repeatPenalty))
-                        .font(.callout.monospaced())
-                        .frame(width: 44, alignment: .trailing)
-                }
+            Toggle("Top-k", isOn: $model.overrideTopK)
+            if model.overrideTopK {
+                Stepper("\(model.topK)", value: $model.topK, in: 1...200)
             }
-            Text("A long generation can collapse into repeating itself — this model has "
-                 + "done it on transcripts. llama.cpp defaults to 1.0, meaning off; 1.1 is "
-                 + "the conventional mild setting.")
+
+            Toggle("Top-p", isOn: $model.overrideTopP)
+            if model.overrideTopP {
+                slider($model.topP, range: 0...1, step: 0.01)
+            }
+
+            Toggle("Repetition penalty", isOn: $model.overrideRepeatPenalty)
+            if model.overrideRepeatPenalty {
+                slider($model.repeatPenalty, range: 1...1.5, step: 0.05)
+            }
+
+            Toggle("Presence penalty", isOn: $model.overridePresencePenalty)
+            if model.overridePresencePenalty {
+                slider($model.presencePenalty, range: -2...2, step: 0.1)
+            }
+        }
+    }
+
+    private var systemPromptSection: some View {
+        Section("System Prompt") {
+            TextEditor(text: $model.systemPrompt)
+                .font(.callout)
+                .frame(minHeight: 90)
+
+            Text("Prepended to conversations started from the ask bar. Other clients send "
+                 + "their own and are unaffected. Leave empty for none.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private func slider(
+        _ value: Binding<Double>, range: ClosedRange<Double>, step: Double
+    ) -> some View {
+        HStack {
+            Slider(value: value, in: range, step: step)
+            Text(String(format: "%.2f", value.wrappedValue))
+                .font(.callout.monospaced())
+                .frame(width: 44, alignment: .trailing)
         }
     }
 
