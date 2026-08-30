@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ModelStore.shared.refresh()
         LoginItemModel.shared.registerOnFirstRun()
         StatusItemController.shared.install()
+        AskBarWindowController.shared.registerHotKey()
 
         // A downloaded model should be usable immediately rather than after a
         // restart, so picking it up is wired here rather than left to the next

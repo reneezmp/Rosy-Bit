@@ -28,6 +28,21 @@ enum Config {
 
     static var healthURL: URL? { URL(string: "http://\(host):\(port)/health") }
 
+    static var chatCompletionsURL: URL? {
+        URL(string: "http://\(host):\(port)/v1/chat/completions")
+    }
+
+    /// Prepended to conversations started from inside Rosy Bit. Does not affect
+    /// other clients, which send their own.
+    ///
+    ///     defaults write com.rosybit.app systemPrompt "Answer in one sentence."
+    static var systemPrompt: String? { nonEmptyString("systemPrompt") }
+
+    /// The ⌥Space ask bar. Set false to leave the shortcut unregistered.
+    static var askBarEnabled: Bool {
+        (UserDefaults.standard.object(forKey: "askBarEnabled") as? Bool) ?? true
+    }
+
     /// Where the first-run downloader looks. The Hugging Face API is asked which
     /// files exist rather than guessing at the exact casing of the filename.
     static var modelRepository: String {

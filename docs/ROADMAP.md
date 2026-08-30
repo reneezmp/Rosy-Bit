@@ -108,8 +108,58 @@ Worth stealing outright, from `Packages/OsaurusCore/Managers/InsightsService.swi
 
 ---
 
+## 4. First-run model download — done
+
+The model lives outside the bundle so it can be swapped without rebuilding,
+which left a fresh install needing `fetch-model.sh` by hand — the only script
+an app *user*, as opposed to someone building or validating, had to touch.
+
+`ModelDownloader` mirrors that script: ask the Hugging Face API which files
+exist rather than guessing the filename, then verify before moving into place.
+Verification is the GGUF magic bytes as well as the HTTP status, so a 404 page
+or a truncated transfer fails with a clear message instead of becoming a
+confusing llama-server crash later.
+
+One manual step remains on a fresh install and it is not ours to remove: an
+ad-hoc signed app still needs `xattr -dr com.apple.quarantine`. That needs a
+Developer ID and notarisation.
+
+---
+
+## 5. Ask bar — done
+
+⌥Space opens a Spotlight-shaped panel, streams an answer, dismisses on click
+away. `GlobalHotKey` uses Carbon's `RegisterEventHotKey` rather than
+`NSEvent.addGlobalMonitorForEvents`, which would need Accessibility permission,
+or the popular third-party package, which would be this project's first
+dependency.
+
+---
+
+## 6. Chat window — next
+
+The remaining item. `ChatClient` already exists and is proven by the ask bar, so
+this is mostly UI: `NavigationSplitView` gives the collapsible sidebar on
+macOS 13, and a system prompt is already a stored setting.
+
+**The open question is history storage.** Insights is memory-only by deliberate
+choice, because it holds meeting transcripts. Chat history written to disk would
+quietly contradict that — conversations would outlive the app. Decide that
+before building it, not after.
+
+Worth knowing before judging the speed: llama-server caches the KV of the
+previous prompt per slot and reuses the longest common prefix. A conversation is
+exactly that shape, so turn N only processes the new message rather than the
+whole history — provided nothing else hits the server in between and evicts it.
+
+---
+
 ## Order
 
-All three have landed. 3b (the proxy) was taken directly rather than shipping
-3a first, because the Prompt, Request and Response tabs are the point and only
-the proxy can supply them.
+Five of six have landed; the chat window is the one left. 3b (the proxy) was
+taken directly rather than shipping 3a first, because the Prompt, Request and
+Response tabs are the point and only the proxy can supply them.
+
+**None of items 3 to 5 has ever run.** They were written without a compiler
+while the machines that can build them were unavailable. `docs/TESTING.md` is
+the list, ordered so an early failure explains the later ones.

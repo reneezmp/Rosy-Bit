@@ -174,6 +174,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(item(
             ServerController.shared.state.isBusy ? "Stop Server" : "Start Server",
             #selector(toggleServer)))
+        if Config.askBarEnabled {
+            let ask = item("Ask…", #selector(showAskBar))
+            // Displays ⌥Space. The global shortcut is registered separately in
+            // Carbon; this only fires while Rosy Bit is frontmost.
+            ask.keyEquivalent = " "
+            ask.keyEquivalentModifierMask = [.option]
+            menu.addItem(ask)
+        }
         menu.addItem(item("Copy Endpoint URL", #selector(copyEndpoint)))
         if Config.insightsEnabled {
             let captured = InsightsStore.shared.records.count
@@ -292,6 +300,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func openModelsFolder() {
         ModelStore.shared.revealModelFolder()
+    }
+
+    @objc private func showAskBar() {
+        AskBarWindowController.shared.show()
     }
 
     @objc private func showModelSetup() {
