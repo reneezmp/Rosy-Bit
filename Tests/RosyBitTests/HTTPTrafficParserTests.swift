@@ -82,6 +82,55 @@ final class HTTPTrafficParserTests: XCTestCase {
         XCTAssertTrue(records.allSatisfy { !$0.parseFailed })
     }
 
+    /// A tool call answers with an empty `content`, and an empty string is not
+    /// nil — so assigning it shadowed the raw-body fallback with `??` and the
+    /// detail pane read "No response body" for every tool response.
+    func testToolCallResponseIsShownRatherThanReadingAsEmpty() {
+        let parser = HTTPTrafficParser()
+        var records: [RequestRecord] = []
+        parser.onRecord = { records.append($0) }
+
+        let body = #"{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":"","tool_calls":[{"type":"function","function":{"name":"dictionary_lookup","arguments":"{\"term\": \"petrichor\"}"}}]}}]}"#
+
+        parser.consumeRequest(data(
+            "POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\n\r\n"))
+        parser.consumeResponse(data(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+            + "Content-Length: \(body.utf8.count)\r\n\r\n" + body))
+
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records.first?.finishReason, "tool_calls")
+        XCTAssertEqual(
+            records.first?.responseText,
+            #"dictionary_lookup({"term": "petrichor"})"#)
+    }
+
+    /// Streamed tool calls arrive as fragments: the name once, then the
+    /// arguments a few characters at a time, keyed by index.
+    func testStreamedToolCallFragmentsAreStitchedBackTogether() {
+        let parser = HTTPTrafficParser()
+        var records: [RequestRecord] = []
+        parser.onRecord = { records.append($0) }
+
+        let events = [
+            #"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"volume_set","arguments":""}}]}}]}"#,
+            #"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"lev"}}]}}]}"#,
+            #"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"el\": 30}"}}]}}]}"#,
+            #"{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}"#,
+        ]
+        let body = events.map { "data: \($0)\n\n" }.joined() + "data: [DONE]\n\n"
+
+        parser.consumeRequest(data(
+            "POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\n\r\n"))
+        parser.consumeResponse(data(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
+            + "Content-Length: \(body.utf8.count)\r\n\r\n" + body))
+
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records.first?.finishReason, "tool_calls")
+        XCTAssertEqual(records.first?.responseText, #"volume_set({"level": 30})"#)
+    }
+
     private func data(_ string: String) -> Data {
         Data(string.utf8)
     }

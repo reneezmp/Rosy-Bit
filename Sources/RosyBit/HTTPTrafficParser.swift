@@ -207,16 +207,42 @@ final class HTTPTrafficParser {
             return
         }
         record.finishReason = first["finish_reason"] as? String
-        if let message = first["message"] as? [String: Any],
-           let content = message["content"] as? String {
-            record.responseText = BodySanitiser.sanitise(content)
+        guard let message = first["message"] as? [String: Any] else { return }
+
+        // A tool call answers with an empty `content` and puts the substance in
+        // `tool_calls`. Assigning that empty string was worse than assigning
+        // nothing: the detail pane falls back to the raw body with `??`, and a
+        // non-nil empty string is not nil, so the fallback never ran and every
+        // tool response read as "No response body".
+        let content = message["content"] as? String ?? ""
+        let rendered = content.isEmpty
+            ? Self.describeToolCalls(message["tool_calls"])
+            : content
+        if let rendered, !rendered.isEmpty {
+            record.responseText = BodySanitiser.sanitise(rendered)
         }
+    }
+
+    /// Renders tool calls as something readable in the detail pane. The whole
+    /// point of Insights is seeing what a client actually got, and for a tool
+    /// call that is the name and the arguments rather than any prose.
+    static func describeToolCalls(_ raw: Any?) -> String? {
+        guard let calls = raw as? [[String: Any]], !calls.isEmpty else { return nil }
+        let lines = calls.compactMap { call -> String? in
+            guard let function = call["function"] as? [String: Any],
+                  let name = function["name"] as? String else { return nil }
+            let arguments = function["arguments"] as? String ?? ""
+            return arguments.isEmpty ? "\(name)()" : "\(name)(\(arguments))"
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
 
     /// Streamed: a run of `data: {...}` events whose deltas have to be stitched
     /// back into the message the user actually saw.
     private func applyStreamedResponse(_ text: String, to record: inout RequestRecord) {
         var assembled = ""
+        var toolNames: [Int: String] = [:]
+        var toolArguments: [Int: String] = [:]
 
         for line in text.components(separatedBy: "\n") {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -239,10 +265,35 @@ final class HTTPTrafficParser {
             if let reason = first["finish_reason"] as? String {
                 record.finishReason = reason
             }
-            if let delta = first["delta"] as? [String: Any],
-               let content = delta["content"] as? String {
+            guard let delta = first["delta"] as? [String: Any] else { continue }
+            if let content = delta["content"] as? String {
                 assembled += content
             }
+            // Streamed tool calls arrive in fragments keyed by index: the name
+            // once, then the arguments a few characters at a time. Collecting
+            // them by index is the only way to end up with the call that was
+            // actually made.
+            if let calls = delta["tool_calls"] as? [[String: Any]] {
+                for call in calls {
+                    let index = call["index"] as? Int ?? 0
+                    guard let function = call["function"] as? [String: Any] else { continue }
+                    if let name = function["name"] as? String, !name.isEmpty {
+                        toolNames[index] = name
+                    }
+                    if let fragment = function["arguments"] as? String {
+                        toolArguments[index, default: ""] += fragment
+                    }
+                }
+            }
+        }
+
+        if assembled.isEmpty, !toolNames.isEmpty {
+            assembled = toolNames.keys.sorted().map { index in
+                let arguments = toolArguments[index] ?? ""
+                return arguments.isEmpty
+                    ? "\(toolNames[index] ?? "")()"
+                    : "\(toolNames[index] ?? "")(\(arguments))"
+            }.joined(separator: "\n")
         }
 
         if !assembled.isEmpty {

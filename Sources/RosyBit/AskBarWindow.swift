@@ -282,6 +282,17 @@ final class AskBarWindowController: NSWindowController, NSWindowDelegate {
         panel.contentViewController = controller
         hostingController = controller
 
+        // Assigning `contentViewController` makes AppKit adopt the controller's
+        // preferred content size, and an empty `sizingOptions` publishes no size
+        // at all. On macOS 13 and 15 that is taken as zero and the panel
+        // collapses to 0x0 — it still orders in, still takes the shortcut, and
+        // is simply an invisible point on the screen. Newer AppKit keeps the
+        // frame, which is why this only ever showed up on Rosy.
+        //
+        // `minSize` does not save it: that constrains resizing, not the size
+        // adopted from a content view controller. Setting the size back does.
+        panel.setContentSize(NSSize(width: Self.cardWidth, height: Self.collapsedHeight))
+
         // Only output changes affect height. Debouncing coalesces streaming
         // tokens and also moves measurement past @Published's willSet timing.
         Publishers.CombineLatest3(model.$answer, model.$errorMessage, model.$isStreaming)
@@ -310,7 +321,14 @@ final class AskBarWindowController: NSWindowController, NSWindowDelegate {
 
         let target = min(max(desiredHeight(), Self.collapsedHeight), Self.maximumHeight)
         var frame = window.frame
-        guard abs(frame.height - target) > 0.5 else { return }
+
+        // Width is checked as well as height so that a panel which has lost its
+        // frame recovers on the next open instead of staying invisible forever.
+        // The card is a fixed width by design, so there is only ever one right
+        // answer for it.
+        let needsWidth = abs(frame.width - Self.cardWidth) > 0.5
+        let needsHeight = abs(frame.height - target) > 0.5
+        guard needsWidth || needsHeight else { return }
 
         isResizing = true
         defer { isResizing = false }
@@ -318,6 +336,7 @@ final class AskBarWindowController: NSWindowController, NSWindowDelegate {
         // Anchored at the top, so the field stays put and the answer opens
         // downwards rather than shoving the bar up the screen.
         let top = frame.maxY
+        frame.size.width = Self.cardWidth
         frame.size.height = target
         frame.origin.y = top - target
         window.setFrame(frame, display: true, animate: false)

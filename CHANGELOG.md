@@ -3,6 +3,19 @@
 Rosy Bit follows semantic versioning from the first public baseline. This file
 records user-visible changes; the detailed engineering history remains in Git.
 
+## Unreleased
+
+### Fixed
+
+- The Ask bar never appeared on macOS 13 and 15. Assigning a hosting controller
+  with no sizing options let AppKit adopt a zero content size, so the panel
+  opened at 0x0 — present, on screen, and invisible. It also now recovers its
+  width rather than only its height, so a lost frame heals on the next open.
+- Insights showed "No response body" for every tool call. A tool response
+  carries an empty `content` and puts the substance in `tool_calls`, which was
+  never read; the empty string then shadowed the raw-body fallback. Tool calls
+  are now shown, streamed ones included.
+
 ## [1.0.0] — 2026-08-30
 
 The first complete release: a local-AI home for Rosy, the 2017 12-inch MacBook

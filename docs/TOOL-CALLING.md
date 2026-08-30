@@ -173,6 +173,56 @@ of three. That is the same borderline phrasing the M4 found, failing at a
 similar rate, which is what a decision-boundary case looks like rather than a
 gap in the description.
 
+## Bigger is worse — Bonsai 4B, 2026-08-30
+
+An earlier version of this document said 4B and 8B were "presumed no worse,
+which is not the same as known." The presumption was wrong. One pass of the
+same 26 cases on Rosy, against Bonsai 4B Q1_0:
+
+| Verdict | Count | Share |
+| --- | --- | --- |
+| MISSED | 17 | 65% |
+| FALSE-POSITIVE | 5 | 19% |
+| PASS | 4 | 15% |
+
+Median latency 10.34 s, maximum 45.0 s — roughly two and a half times slower
+than 1.7B as well as far less accurate, so there is no quality-for-patience
+trade to weigh here. It is worse in both directions at once.
+
+The shape of the failure is what makes this more than a quality result. 4B did
+not merely get it wrong; it got it **exactly backwards**. It called no tool on a
+single one of the seventeen cases that wanted one, and then reached for tools on
+five prompts that wanted none:
+
+| Prompt | What it did |
+| --- | --- |
+| "What is 2 + 2?" | `dictionary_lookup("two")` |
+| "Hello! How are you today?" | `volume_get()` |
+| "Write me a two-line poem about a cat." | `dictionary_lookup("cat")` |
+| "What's the capital of France?" | `dictionary_lookup("capital of France")` |
+| "Give me three tags for a blog post…" | `volume_get()` |
+
+Read that middle row again with a state-changing tool in mind. A greeting
+triggered a system call. Had `volume_set` been the tempting one, "hello" could
+have changed the volume. The confirmation rule for state-changing tools was
+already argued from argument fidelity; this is a second, independent argument
+for it, and a stronger one.
+
+### Which is not yet proof that 4B cannot do this
+
+One pass, 26 cases, one machine. And there is a specific alternative
+explanation that has not been ruled out: tool calling depends on the chat
+template baked into the GGUF, `--jinja` reads that template, and the 4B file is
+a different build from a different upload. A broken or tool-less template would
+produce exactly this — no calls where calls belong — though it explains the
+false positives less comfortably.
+
+That check is cheap and belongs before anyone concludes anything about the model
+itself. What is already safe to act on is narrower and enough: **the tool layer
+must be gated on the model that was measured.** Tools ship enabled for Bonsai
+1.7B. For anything else in the model menu they stay off, or behind a warning,
+until that model has been through this harness.
+
 ## The case for the dictionary tool, restated
 
 A separate check asked Bonsai to explain *susurrus* with no tool available. She
@@ -194,6 +244,7 @@ in place of it. The entry is the answer; the model is the presenter.
   Rosy's clock speeds while the suite ran.
 - Only single-call turns were tested. Chained calls, parallel calls, and
   recovery from a tool that returns an error are all untested.
-- 4B and 8B were not measured. They are presumed no worse, which is not the
-  same as known.
+- 8B has not been measured at all. Given the 4B result, presuming anything
+  about it would be a second mistake of the same kind.
+- Whether 4B's failure is the model or its chat template is unresolved.
 - The injection cases are illustrative, not a threat model.
