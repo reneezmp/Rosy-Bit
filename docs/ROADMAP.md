@@ -49,17 +49,21 @@ the dictionaries already enabled on the machine. It is the safest first tool:
 local, bounded, reversible, and useful for a small model.
 
 Whether a 1-bit model could drive a tool loop at all was the open question, and
-it has been answered. Across 78 requests, Bonsai 1.7B Q1_0 produced no malformed
-arguments, invented no tools, and fired no tool where none was wanted. The
-measurement and its caveats are in [`TOOL-CALLING.md`](TOOL-CALLING.md).
+it has been answered on both machines. Across 78 requests on the M4 and a full
+pass on Rosy herself, Bonsai 1.7B Q1_0 produced no malformed arguments, invented
+no tools, and fired no tool where none was wanted. Rosy answers in about four
+seconds, and answers *faster* when a tool fires than when one does not — a
+declined tool means a page of prose instead of twenty tokens. The measurement
+and its caveats are in [`TOOL-CALLING.md`](TOOL-CALLING.md).
 
 Two findings shape the build:
 
 - The tool must surface the retrieved dictionary entry itself, with the model's
   gloss beside it rather than in place of it. Grounding corrects the central
   fact but does not fully suppress embellishment at the edges.
-- Tool descriptions must be written for the words people actually use. The one
-  consistent failure was phrasing coverage, not format.
+- Tool descriptions must be written for the words people actually use. The only
+  soft spot was phrasing coverage, not format — and it fell either way depending
+  on sampling rather than failing outright.
 
 ### Small, native macOS controls
 
