@@ -53,11 +53,18 @@ struct ChatClient {
                 // Generation here is measured in minutes, not seconds.
                 request.timeoutInterval = 900
 
-                let payload: [String: Any] = [
+                var payload: [String: Any] = [
                     "model": "rosybit",
                     "stream": true,
                     "messages": messages.map { ["role": $0.role, "content": $0.content] },
                 ]
+                // Ask for a slot of our own so another client cannot evict the
+                // cached system prompt. Unconfirmed on this endpoint — see
+                // Config.internalSlot — but ignored harmlessly if unsupported.
+                let slot = Config.internalSlot
+                if slot >= 0 {
+                    payload["id_slot"] = slot
+                }
                 request.httpBody = try JSONSerialization.data(withJSONObject: payload)
 
                 let (bytes, response) = try await URLSession.shared.bytes(for: request)

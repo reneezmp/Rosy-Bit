@@ -231,6 +231,22 @@ enum Config {
         optionalDouble("presencePenalty", clampedTo: -2...2) ?? ModelCard.presencePenalty
     }
 
+    /// The slot Rosy Bit asks for its own requests, to keep its system prompt
+    /// warm where another client cannot evict it.
+    ///
+    /// Prefix affinity alone does not guarantee that. llama-server picks a slot
+    /// by longest-common-prefix similarity and falls back to least-recently-used,
+    /// so a *third* distinct prefix — a second external client, or one that
+    /// varies its prompt per task — can take the slot Rosy Bit was using.
+    ///
+    /// `id_slot` is documented for llama.cpp's own `/completion` endpoint but is
+    /// not listed among the options for `/v1/chat/completions`, so whether it is
+    /// honoured on the path used here is unconfirmed. Sending it is harmless if
+    /// it is ignored — llama-server does not reject unknown fields — and the log
+    /// says which slot actually served the request, so the answer is one request
+    /// away. Set to -1 to stop sending it.
+    static var internalSlot: Int { intDefault("internalSlot", fallback: 0, clampedTo: -1...7) }
+
     /// The ask bar's shortcut. Stored as a virtual key code and a Carbon
     /// modifier mask, both settable in Settings — ⌥Space is a popular choice
     /// among launchers, so it needs to be changeable.

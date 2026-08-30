@@ -179,9 +179,21 @@ client's requests stop evicting each other's cached prefix. Slots cannot be
 assigned; llama-server picks by longest-common-prefix similarity, so the
 separation is emergent and worth confirming rather than assuming.
 
-- [ ] Ask something in the ask bar, then send a transcript from MacWhisper,
-      then ask again. In the log, the two should settle on **different slot
-      ids** (`launch_slot_: id 0` and `id 1`)
+**The one question that decides this design:** does `id_slot` work on
+`/v1/chat/completions`? It is documented for llama.cpp's own `/completion` but
+not listed for the OpenAI-compatible endpoint. Rosy Bit now asks for slot 0 on
+its own requests; the log says whether it got it.
+
+- [ ] Ask something in the ask bar. The log should show
+      `launch_slot_: id  0`. **Every time**, including right after a MacWhisper
+      transcript has been through. If it does, the pin works and Rosy Bit's
+      prefix cannot be evicted
+- [ ] If the ask bar lands on varying slot ids, `id_slot` is being ignored and
+      only prefix affinity is at work — which a third distinct prefix can
+      displace. Options then: keep the system prompt short so re-warming is
+      cheap, or run a second llama-server for internal calls, which is
+      bulletproof and costs a second model load
+- [ ] Send a transcript from MacWhisper. It should land on a **different** id
 - [ ] The second ask-bar question should report far fewer prompt tokens than
       the first, since the system prompt is still cached
 - [ ] Watch `prompt eval time` on a long transcript against the one-slot
