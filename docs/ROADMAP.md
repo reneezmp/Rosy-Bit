@@ -42,11 +42,24 @@ default would quietly violate that design. Sensible options are:
 
 That decision comes before the interface.
 
-### Dictionary tool
+### Dictionary tool — measured and cleared
 
 A read-only `dictionary.lookup(term)` tool can use macOS Dictionary Services and
 the dictionaries already enabled on the machine. It is the safest first tool:
 local, bounded, reversible, and useful for a small model.
+
+Whether a 1-bit model could drive a tool loop at all was the open question, and
+it has been answered. Across 78 requests, Bonsai 1.7B Q1_0 produced no malformed
+arguments, invented no tools, and fired no tool where none was wanted. The
+measurement and its caveats are in [`TOOL-CALLING.md`](TOOL-CALLING.md).
+
+Two findings shape the build:
+
+- The tool must surface the retrieved dictionary entry itself, with the model's
+  gloss beside it rather than in place of it. Grounding corrects the central
+  fact but does not fully suppress embellishment at the edges.
+- Tool descriptions must be written for the words people actually use. The one
+  consistent failure was phrasing coverage, not format.
 
 ### Small, native macOS controls
 
@@ -57,6 +70,13 @@ and `volume.mute` through a validated tool-call loop.
 The model must never receive unrestricted shell access. Tool requests are
 structured, allowlisted, range-checked, executed by native code, and returned to
 the model as observations. Read-only tools come before state-changing ones.
+
+That ordering now has a measurement behind it. Asked to set the volume to 200,
+the model answered with a schema-valid, in-range, and simply wrong `level: 20`.
+When a request cannot be honoured it does not signal failure; it produces
+something plausible and proceeds. Validation cannot catch that, so every
+state-changing tool must show its parsed intent before it executes. A wrong
+lookup costs a wrong definition. A wrong `volume.set` costs trust.
 
 ### Native 1-bit model laboratory
 
