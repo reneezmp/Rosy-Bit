@@ -33,11 +33,17 @@ final class LoginItemModel: ObservableObject {
             refresh()
             return
         }
-        UserDefaults.standard.set(true, forKey: Self.firstRunKey)
-        setEnabled(true)
+        // A development build outside /Applications may fail registration.
+        // Leave first-run pending in that case so the installed app can try
+        // again rather than remembering a failed attempt forever.
+        if setEnabled(true) {
+            UserDefaults.standard.set(true, forKey: Self.firstRunKey)
+        }
     }
 
-    func setEnabled(_ enabled: Bool) {
+    @discardableResult
+    func setEnabled(_ enabled: Bool) -> Bool {
+        var succeeded = true
         do {
             if enabled {
                 if SMAppService.mainApp.status != .enabled {
@@ -50,9 +56,11 @@ final class LoginItemModel: ObservableObject {
             }
             lastError = nil
         } catch {
+            succeeded = false
             lastError = error.localizedDescription
             NSLog("Rosy Bit: could not change login item: %@", error.localizedDescription)
         }
         refresh()
+        return succeeded
     }
 }

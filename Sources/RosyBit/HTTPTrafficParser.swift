@@ -60,15 +60,23 @@ final class HTTPTrafficParser {
             guard parts.count >= 2 else { return abandon() }
 
             let headers = Self.headers(from: head.components(separatedBy: "\r\n").dropFirst())
-            let contentLength = Int(headers["content-length"] ?? "") ?? 0
-
             let bodyStart = headerEnd.upperBound
-            guard requestBuffer.count - bodyStart >= contentLength else { return }  // wait
+            let available = requestBuffer.subdata(in: bodyStart..<requestBuffer.endIndex)
+            let bodyResult: (body: Data, consumed: Int)
+
+            if headers["transfer-encoding"]?.lowercased().contains("chunked") == true {
+                guard let dechunked = Self.dechunk(available) else { return }
+                bodyResult = dechunked
+            } else {
+                let contentLength = Int(headers["content-length"] ?? "") ?? 0
+                guard contentLength >= 0 else { return abandon() }
+                guard available.count >= contentLength else { return }  // wait
+                bodyResult = (available.subdata(in: 0..<contentLength), contentLength)
+            }
 
             var record = RequestRecord(method: parts[0], path: parts[1])
-            if contentLength > 0 {
-                let bodyData = requestBuffer.subdata(in: bodyStart..<(bodyStart + contentLength))
-                if let whole = String(data: bodyData, encoding: .utf8) {
+            if !bodyResult.body.isEmpty {
+                if let whole = String(data: bodyResult.body, encoding: .utf8) {
                     // Extract structure from the whole body first; truncation
                     // afterwards would leave JSON that cannot be parsed.
                     record.promptMessages = RequestRecord.extractMessages(fromWholeBody: whole)
@@ -79,7 +87,7 @@ final class HTTPTrafficParser {
 
             pending.append(record)
             startTimes.append(Date())
-            consume(&requestBuffer, upTo: bodyStart + contentLength, scanned: &requestScanned)
+            consume(&requestBuffer, upTo: bodyStart + bodyResult.consumed, scanned: &requestScanned)
         }
     }
 
@@ -124,7 +132,17 @@ final class HTTPTrafficParser {
             // over about 1 KB — which is every real prompt — so treating one as
             // a response would consume the pending request and desynchronise
             // the whole connection.
-            if (100..<200).contains(status) || status == 204 || status == 304 {
+            if (100..<200).contains(status) {
+                consume(&responseBuffer, upTo: bodyStart, scanned: &responseScanned)
+                continue
+            }
+
+            // These are final responses with no body. HEAD may still report the
+            // Content-Length a corresponding GET would have sent, so it must be
+            // decided from the pending request rather than from the headers.
+            let answersHead = pending.first?.method.caseInsensitiveCompare("HEAD") == .orderedSame
+            if status == 204 || status == 304 || answersHead {
+                finish(status: status, body: nil, contentType: headers["content-type"])
                 consume(&responseBuffer, upTo: bodyStart, scanned: &responseScanned)
                 continue
             }
@@ -135,6 +153,7 @@ final class HTTPTrafficParser {
             if headers["transfer-encoding"]?.lowercased().contains("chunked") == true {
                 bodyResult = Self.dechunk(available)
             } else if let length = Int(headers["content-length"] ?? "") {
+                guard length >= 0 else { return abandon() }
                 guard available.count >= length else { return }  // wait for more
                 bodyResult = (available.subdata(in: 0..<length), length)
             } else {
@@ -300,15 +319,24 @@ final class HTTPTrafficParser {
 
             let chunkStart = lineEnd.upperBound
             if size == 0 {
-                // Trailer plus the final CRLF.
-                guard let end = data.range(of: crlf, options: [], in: chunkStart..<data.count) else {
-                    return nil
+                // No trailers is the common `0\r\n\r\n` case. With trailers,
+                // consume the entire trailer section through its empty line.
+                if data.count >= chunkStart + crlf.count,
+                   data.subdata(in: chunkStart..<(chunkStart + crlf.count)) == crlf {
+                    return (body, chunkStart + crlf.count)
                 }
+                guard let end = data.range(
+                    of: headerTerminator, options: [], in: chunkStart..<data.count)
+                else { return nil }
                 return (body, end.upperBound)
             }
 
+            guard size <= Int.max - chunkStart - crlf.count else { return nil }
             let chunkEnd = chunkStart + size
             guard data.count >= chunkEnd + 2 else { return nil }
+            guard data.subdata(in: chunkEnd..<(chunkEnd + crlf.count)) == crlf else {
+                return nil
+            }
             body.append(data.subdata(in: chunkStart..<chunkEnd))
             offset = chunkEnd + 2  // skip the CRLF after the chunk
         }

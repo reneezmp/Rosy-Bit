@@ -13,7 +13,37 @@ struct ChatClient {
         let content: String
 
         static func system(_ content: String) -> Message { Message(role: "system", content: content) }
-        static func user(_ content: String) -> Message { Message(role: "user", content: content) }
+
+        /// A compact, explicitly labelled local timestamp belongs on each user
+        /// turn, not beside the system prompt. The system prompt is the reusable
+        /// prefix; putting a changing date there would invalidate that cache on
+        /// every request. Date, minute, and a short zone give a small model enough
+        /// semantic context without spending tokens on seconds or an IANA name.
+        static func user(
+            _ content: String,
+            at date: Date = Date(),
+            timeZone: TimeZone = .current
+        ) -> Message {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.calendar = Calendar(identifier: .gregorian)
+            formatter.dateFormat = "yyyy-MM-dd HH:mm"
+            formatter.timeZone = timeZone
+            let timestamp = formatter.string(from: date)
+            let zone: String
+            if timeZone.identifier == "America/Sao_Paulo",
+               timeZone.secondsFromGMT(for: date) == -3 * 60 * 60 {
+                // Foundation renders this as "GMT-3"; BRT is shorter and gives
+                // the model the more useful human name Renée expects.
+                zone = "BRT"
+            } else {
+                zone = timeZone.abbreviation(for: date) ?? timeZone.identifier
+            }
+            return Message(
+                role: "user",
+                content: "[Timestamp: \(timestamp) \(zone)]\n\(content)")
+        }
+
         static func assistant(_ content: String) -> Message { Message(role: "assistant", content: content) }
     }
 

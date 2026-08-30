@@ -37,7 +37,7 @@ final class ModelStore: ObservableObject {
 
         let contents = (try? FileManager.default.contentsOfDirectory(
             at: directory,
-            includingPropertiesForKeys: nil,
+            includingPropertiesForKeys: [.fileSizeKey],
             options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants])) ?? []
 
         let found = contents
@@ -72,6 +72,21 @@ final class ModelStore: ObservableObject {
         preferredName = name
         guard name != selectedName else { return }
         selectedName = name
+    }
+
+    /// The installed menu describes the file that is actually on disk rather
+    /// than estimating from parameter count. GGUF metadata, embeddings, and
+    /// quantisation block sizes all make those estimates noticeably imperfect.
+    static func menuTitle(for url: URL) -> String {
+        let name = url.deletingPathExtension().lastPathComponent
+        guard let bytes = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize else {
+            return name
+        }
+        let size = ByteCountFormatter.string(
+            fromByteCount: Int64(bytes),
+            countStyle: .file
+        )
+        return "\(name) — \(size)"
     }
 
     func revealModelFolder() {

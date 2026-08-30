@@ -46,11 +46,32 @@ if pgrep -x "$APP_NAME" >/dev/null 2>&1; then
     fi
 fi
 
-# An orphaned llama-server would hold the port against the new build. Rosy Bit
-# clears one on launch, but not if it is on a port this build no longer uses.
-if pgrep -x llama-server >/dev/null 2>&1; then
-    printf 'stopping a leftover llama-server\n'
-    pkill -x llama-server || true
+# An orphaned child may still be on a port this build no longer uses. Only touch
+# the PID Rosy Bit recorded and verify its executable name first; other
+# llama-server instances on this account belong to their own applications.
+PID_FILE="$HOME/Library/Application Support/RosyBit/.llama-server.pid"
+if [ -f "$PID_FILE" ]; then
+    orphan_pid="$(tr -d '[:space:]' < "$PID_FILE")"
+    case "$orphan_pid" in
+        ''|*[!0-9]*) orphan_pid='' ;;
+    esac
+
+    if [ -n "$orphan_pid" ] && kill -0 "$orphan_pid" 2>/dev/null; then
+        orphan_name="$(ps -p "$orphan_pid" -o comm= 2>/dev/null || true)"
+        if [ "$(basename "$orphan_name")" = "llama-server" ]; then
+            printf 'stopping Rosy Bit llama-server (pid %s)\n' "$orphan_pid"
+            kill "$orphan_pid" 2>/dev/null || true
+            for _ in $(seq 1 20); do
+                if ! kill -0 "$orphan_pid" 2>/dev/null; then break; fi
+                sleep 0.1
+            done
+        fi
+    fi
+    # Keep a still-live PID recorded so the newly installed app can perform its
+    # own verified cleanup. A dead or stale PID file has no further value.
+    if [ -z "$orphan_pid" ] || ! kill -0 "$orphan_pid" 2>/dev/null; then
+        rm -f "$PID_FILE"
+    fi
 fi
 
 rm -rf "$INSTALLED"

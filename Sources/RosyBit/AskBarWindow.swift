@@ -10,10 +10,15 @@ final class AskBarModel: ObservableObject {
     @Published private(set) var answer = ""
     @Published private(set) var isStreaming = false
     @Published private(set) var errorMessage: String?
+    @Published private(set) var focusRequest = 0
 
     private var task: Task<Void, Never>?
 
     var hasOutput: Bool { !answer.isEmpty || isStreaming || errorMessage != nil }
+
+    func requestPromptFocus() {
+        focusRequest &+= 1
+    }
 
     func submit() {
         let question = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -82,6 +87,126 @@ private final class AskBarPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+/// Converts both complete and still-streaming Markdown into native attributed
+/// text. The partial-input policy matters for fenced code, emphasis, and links
+/// whose closing delimiter may arrive several tokens later.
+enum AskBarMarkdown {
+    struct Block: Identifiable {
+        enum Kind: Equatable {
+            case paragraph
+            case heading(Int)
+            case unorderedListItem
+            case orderedListItem(Int)
+            case codeBlock
+            case blockQuote
+            case thematicBreak
+        }
+
+        let id: Int
+        let identity: Int
+        let kind: Kind
+        let indentation: Int
+        var content: AttributedString
+    }
+
+    static func render(_ source: String) -> AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .full,
+            failurePolicy: .returnPartiallyParsedIfPossible)
+        return (try? AttributedString(markdown: source, options: options))
+            ?? AttributedString(source)
+    }
+
+    /// Turns Foundation's block presentation intents into concrete SwiftUI
+    /// blocks. `Text(AttributedString)` handles inline intents but deliberately
+    /// ignores headers, lists, quotes, and code-block presentation.
+    static func blocks(_ source: String) -> [Block] {
+        let rendered = render(source)
+        var result: [Block] = []
+        var fallbackIdentity = -1
+
+        for run in rendered.runs {
+            let components = run.presentationIntent?.components ?? []
+            let description = describe(components: components, fallbackIdentity: fallbackIdentity)
+            if components.isEmpty { fallbackIdentity -= 1 }
+            let segment = AttributedString(rendered[run.range])
+
+            if let last = result.indices.last,
+               result[last].identity == description.identity,
+               result[last].kind == description.kind {
+                result[last].content.append(segment)
+            } else {
+                result.append(Block(
+                    id: result.count,
+                    identity: description.identity,
+                    kind: description.kind,
+                    indentation: description.indentation,
+                    content: segment))
+            }
+        }
+
+        if result.isEmpty, !source.isEmpty {
+            result.append(Block(
+                id: 0, identity: fallbackIdentity, kind: .paragraph,
+                indentation: 0, content: AttributedString(source)))
+        }
+        return result
+    }
+
+    private static func describe(
+        components: [PresentationIntent.IntentType],
+        fallbackIdentity: Int
+    ) -> (identity: Int, kind: Block.Kind, indentation: Int) {
+        let indentation = max(0, components.count - 1)
+
+        if let component = components.first(where: {
+            if case .header = $0.kind { return true }
+            return false
+        }), case .header(let level) = component.kind {
+            return (component.identity, .heading(level), indentation)
+        }
+
+        if let component = components.first(where: {
+            if case .codeBlock = $0.kind { return true }
+            return false
+        }) {
+            return (component.identity, .codeBlock, indentation)
+        }
+
+        if let item = components.first(where: {
+            if case .listItem = $0.kind { return true }
+            return false
+        }), case .listItem(let ordinal) = item.kind {
+            let ordered = components.contains {
+                if case .orderedList = $0.kind { return true }
+                return false
+            }
+            return (item.identity, ordered ? .orderedListItem(ordinal) : .unorderedListItem,
+                    indentation)
+        }
+
+        if components.contains(where: {
+            if case .blockQuote = $0.kind { return true }
+            return false
+        }) {
+            let paragraph = components.first ?? components[0]
+            return (paragraph.identity, .blockQuote, indentation)
+        }
+
+        if let component = components.first(where: {
+            if case .thematicBreak = $0.kind { return true }
+            return false
+        }) {
+            return (component.identity, .thematicBreak, indentation)
+        }
+
+        if let paragraph = components.first {
+            return (paragraph.identity, .paragraph, indentation)
+        }
+        return (fallbackIdentity, .paragraph, 0)
+    }
+}
+
 /// Lets the panel be dragged.
 ///
 /// `isMovableByWindowBackground` alone does nothing here: the window's
@@ -127,6 +252,7 @@ final class AskBarWindowController: NSWindowController, NSWindowDelegate {
     private static let collapsedHeight: CGFloat = 56
     private static let maximumHeight: CGFloat = 460
     private static let textInset: CGFloat = 32
+    static let answerMaximumHeight: CGFloat = 320
 
     private init() {
         let panel = AskBarPanel(
@@ -138,6 +264,8 @@ final class AskBarWindowController: NSWindowController, NSWindowDelegate {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
+        panel.minSize = NSSize(width: Self.cardWidth, height: Self.collapsedHeight)
+        panel.maxSize = NSSize(width: Self.cardWidth, height: Self.maximumHeight)
         panel.isMovableByWindowBackground = true
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -147,18 +275,18 @@ final class AskBarWindowController: NSWindowController, NSWindowDelegate {
 
         let controller = NSHostingController(
             rootView: AskBarView(model: model, onDismiss: { [weak self] in self?.hide() }))
-        // Deliberately no `sizingOptions`. With .preferredContentSize, AppKit
-        // resizes the window itself whenever the content's ideal size changes —
-        // and this class resizes it too, so each setFrame triggered a relayout,
-        // which changed the ideal size, which triggered another resize. That
-        // recursion is what made the app vanish on the first token.
+        // This controller alone owns the window height. If NSHostingController
+        // also publishes its ideal size, a long Text can make AppKit grow the
+        // borderless panel beyond our scroll viewport.
+        controller.sizingOptions = []
         panel.contentViewController = controller
         hostingController = controller
 
-        // Any change to the answer, the error or the streaming flag can change
-        // how tall the card wants to be.
-        model.objectWillChange
-            .receive(on: DispatchQueue.main)
+        // Only output changes affect height. Debouncing coalesces streaming
+        // tokens and also moves measurement past @Published's willSet timing.
+        Publishers.CombineLatest3(model.$answer, model.$errorMessage, model.$isStreaming)
+            .dropFirst()
+            .debounce(for: .milliseconds(16), scheduler: RunLoop.main)
             .sink { [weak self] _ in self?.resizeToFitContent() }
             .store(in: &cancellables)
     }
@@ -204,7 +332,9 @@ final class AskBarWindowController: NSWindowController, NSWindowDelegate {
             return height + textHeight(error) + Self.textInset
         }
         if !model.answer.isEmpty {
-            return height + min(textHeight(model.answer) + Self.textInset, 320) + 34  // + copy row
+            return height
+                + min(textHeight(model.answer) + Self.textInset, Self.answerMaximumHeight)
+                + 34  // copy row
         }
         return height + 46  // "Thinking…"
     }
@@ -257,6 +387,7 @@ final class AskBarWindowController: NSWindowController, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
+        model.requestPromptFocus()
     }
 
     func hide() {
@@ -284,9 +415,11 @@ final class AskBarWindowController: NSWindowController, NSWindowDelegate {
         hasBeenPositioned = true
     }
 
-    /// Behaves like Spotlight: clicking elsewhere puts it away.
+    /// An untouched prompt behaves like Spotlight and disappears on click-away.
+    /// Once work has started, the result belongs to the user: keep it visible
+    /// until an explicit Escape or hotkey dismissal.
     func windowDidResignKey(_ notification: Notification) {
-        hide()
+        if !model.hasOutput { hide() }
     }
 }
 
@@ -318,6 +451,8 @@ struct AskBarView: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.10)))
         .onAppear { promptFocused = true }
+        .onChange(of: model.focusRequest) { _ in promptFocused = true }
+        .onExitCommand(perform: onDismiss)
     }
 
     private var field: some View {
@@ -331,7 +466,9 @@ struct AskBarView: View {
                 .focused($promptFocused)
                 .onSubmit {
                     model.submit()
-                    collapsePromptSelection()
+                    // NSTextField selects its contents after Return. Releasing
+                    // focus avoids that surprising overwrite-ready state.
+                    promptFocused = false
                 }
 
             if model.isStreaming {
@@ -350,19 +487,6 @@ struct AskBarView: View {
         .background(WindowDragHandle())
     }
 
-    /// Returning in an `NSTextField` selects everything it contains. The text is
-    /// kept so the question can be edited and asked again, but leaving it
-    /// highlighted looks like the field is about to be overwritten. Collapsing
-    /// the field editor's selection to the end puts the caret where it would be
-    /// if you had simply stopped typing.
-    private func collapsePromptSelection() {
-        DispatchQueue.main.async {
-            guard let editor = NSApp.keyWindow?.fieldEditor(false, for: nil) as? NSTextView
-            else { return }
-            editor.setSelectedRange(NSRange(location: editor.string.utf16.count, length: 0))
-        }
-    }
-
     private var output: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let error = model.errorMessage {
@@ -376,13 +500,11 @@ struct AskBarView: View {
 
             if !model.answer.isEmpty {
                 ScrollView {
-                    Text(model.answer)
-                        .font(.callout)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    MarkdownAnswer(source: model.answer)
                         .padding(16)
                 }
-                .frame(maxHeight: 320)
+                .frame(maxHeight: AskBarWindowController.answerMaximumHeight)
+                .scrollIndicators(.visible)
 
                 answerActions
             } else if model.isStreaming {
@@ -418,5 +540,87 @@ struct AskBarView: View {
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 12)
+    }
+}
+
+private struct MarkdownAnswer: View {
+    let source: String
+
+    private var blocks: [AskBarMarkdown.Block] { AskBarMarkdown.blocks(source) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(blocks) { block in
+                blockView(block)
+            }
+        }
+        .textSelection(.enabled)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func blockView(_ block: AskBarMarkdown.Block) -> some View {
+        switch block.kind {
+        case .paragraph:
+            Text(block.content)
+                .font(.callout)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+        case .heading(let level):
+            Text(block.content)
+                .font(headingFont(level))
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+        case .unorderedListItem:
+            listRow(marker: "•", block: block)
+
+        case .orderedListItem(let ordinal):
+            listRow(marker: "\(ordinal).", block: block)
+
+        case .codeBlock:
+            ScrollView(.horizontal) {
+                Text(block.content)
+                    .font(.system(.callout, design: .monospaced))
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .padding(10)
+            }
+            .background(Color.primary.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+
+        case .blockQuote:
+            HStack(alignment: .top, spacing: 9) {
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(Color.secondary.opacity(0.45))
+                    .frame(width: 3)
+                Text(block.content)
+                    .font(.callout.italic())
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+        case .thematicBreak:
+            Divider()
+        }
+    }
+
+    private func listRow(marker: String, block: AskBarMarkdown.Block) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Text(marker)
+                .font(.callout.monospacedDigit())
+                .frame(minWidth: 14, alignment: .trailing)
+            Text(block.content)
+                .font(.callout)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.leading, CGFloat(max(0, block.indentation - 2)) * 14)
+    }
+
+    private func headingFont(_ level: Int) -> Font {
+        switch level {
+        case 1: return .title3.weight(.semibold)
+        case 2: return .headline
+        default: return .subheadline.weight(.semibold)
+        }
     }
 }

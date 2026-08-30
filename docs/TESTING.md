@@ -1,8 +1,25 @@
-# What still needs testing
+# V1 verification and manual test checklist
 
-Everything below was written without a compiler and, unless noted, has never
-run. Ordered so that a failure early on explains failures later — don't chase
-item 12 while item 1 is broken.
+Protocol-level regressions run automatically with `swift test`; they cover the
+loopback proxy and its restart/collision paths, chunked requests and responses,
+HTTP 204/304, and HEAD. Everything below needs the real app, model, or target
+Mac and therefore remains a manual checklist. It is ordered so a failure early
+on explains failures later.
+
+## V1 evidence — 2026-08-30
+
+- `swift test`: **13 tests passed, 0 failures**.
+- Universal release build: **x86_64 + arm64**.
+- Strict ad-hoc signature verification: **passed**.
+- App and endpoint exercised successfully on OCLP Sequoia.
+- Native Ventura failure reproduced, traced to the proxy implementation, fixed,
+  and retested successfully with Rosy Bit listening on loopback.
+- Ask bar manually confirmed for streaming output, Markdown, bounded scrolling,
+  question selection, temporal context, and the final compact BRT timestamp.
+- Installed-model sizes manually confirmed in the Model submenu.
+
+This is release evidence, not permission to delete the checklist: the unchecked
+items are the reproducible regression pass for a future release.
 
 Build and install first:
 
@@ -17,9 +34,9 @@ open /Applications/RosyBit.app
 
 ## 0. It compiles
 
-The largest untested surface is `Network.framework` in `ProxyServer`, the
-Carbon interop in `GlobalHotKey`, and `URLSession.bytes` in `ChatClient`.
-Expect errors here before anything else.
+Run `swift test`, then `make app`. Confirm that `make app` reports both app
+architectures, both matching llama-server slices, and `signature: ok`. Also
+confirm `Contents/Resources/Third-Party Notices.md` exists in the bundle.
 
 ---
 
@@ -62,7 +79,9 @@ endpoint — which also tells us the fault is in the proxy rather than elsewhere
 - [ ] Set both ports the same → Apply disables, warning appears
 - [ ] Set a port to 80 → same
 - [ ] Change threads → Apply & Restart → new value in the log's first lines
-- [ ] Restore Defaults resets the fields
+- [ ] Restore Defaults resets the fields and restarts a running server when its
+      launch arguments changed
+- [ ] Stop the server, change threads, and Apply → the server remains stopped
 - [ ] Sampling already *starts* at the card's values — temperature 0.5,
       top-k 20, top-p 0.9, repetition penalty 1.0 — rather than llama.cpp's
       hotter defaults. Retry the transcript that looped: running at 0.8 is a
@@ -116,8 +135,12 @@ osascript -e 'quit app "RosyBit"' && open /Applications/RosyBit.app
 - [ ] Download shows real progress and a percentage
 - [ ] On completion the window closes and the server starts by itself
 - [ ] Cancel mid-download leaves **no** partial file in the models folder
+- [ ] Cancel while it says **Looking up the model…** → no download starts later
+- [ ] Fail or cancel a 4B/8B download, then retry → it retries that same size
 - [ ] With a model present, the window does not appear
 - [ ] `Model → Download a Model…` opens it again
+- [ ] Every installed model in the Model submenu shows its actual GGUF file
+      size after the name (not an estimate based on parameter count)
 
 Then restore: `mv ~/Library/Application\ Support/RosyBit/stash/*.gguf ~/Library/Application\ Support/RosyBit/`
 
@@ -128,15 +151,22 @@ Then restore: `mv ~/Library/Application\ Support/RosyBit/stash/*.gguf ~/Library/
 - [ ] ⌥Space opens it from another app — this is the Carbon hotkey, and if it
       is silently doing nothing the registration failed
 - [ ] Typing and pressing return streams an answer
+- [ ] After Return, the question remains visible but is not selected
+- [ ] Bold, emphasis, inline code, links, headings, and lists render as Markdown
+- [ ] A long answer stops growing at the panel limit and scrolls instead
 - [ ] The stop button cancels, and llama-server's CPU drops with it
-- [ ] Clicking elsewhere dismisses it
+- [ ] Clicking elsewhere dismisses an untouched prompt
+- [ ] Clicking elsewhere during or after generation leaves the result visible;
+      Escape or ⌥Space dismisses it explicitly
 - [ ] ⌥Space again reopens
 - [ ] The request appears in Insights
+- [ ] Its user message begins with a compact, labelled local timestamp such as
+      `[Timestamp: 2026-08-30 13:50 BRT]`; the system prompt remains unchanged
 - [ ] `defaults write com.rosybit.app askBarEnabled -bool false` removes both
       the shortcut and the menu item
 
-If ⌥Space is taken by something else on your machine, the registration fails
-silently — say so and it becomes configurable.
+If another app owns ⌥Space, choose a different combination in Settings. Rosy Bit
+shows the registration failure there rather than silently ignoring it.
 
 ---
 
@@ -151,6 +181,8 @@ silently — say so and it becomes configurable.
 - [ ] `lsof -ti tcp:1337` is empty after quitting
 - [ ] On the M4 with Osaurus running: `⚠ Port 1337 held by osaurus`, and
       Osaurus survives
+- [ ] On native Ventura, Insights starts normally and `lsof -nP -iTCP:1337
+      -sTCP:LISTEN` reports Rosy Bit on loopback rather than every interface
 
 ---
 

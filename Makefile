@@ -88,6 +88,7 @@ app: check-vendor icons
 	@cp Support/Info.plist "$(CONTENTS)/Info.plist"
 	@printf 'APPL????' > "$(CONTENTS)/PkgInfo"
 	@cp "$(ICNS)" "$(CONTENTS)/Resources/AppIcon.icns"
+	@cp THIRD_PARTY_NOTICES.md "$(CONTENTS)/Resources/Third-Party Notices.md"
 	@cp "$(ICONS)/MenuBarIcon.png" "$(ICONS)/MenuBarIcon@2x.png" "$(CONTENTS)/Resources/"
 	@# Stage only the slices the app itself has. A host-only build has no use
 	@# for the other architecture's llama-server, and it is 55MB of dead weight.
@@ -108,6 +109,8 @@ app: check-vendor icons
 # Gotcha: an app that is not Intel-capable fails on Rosy in a way that looks
 # like a Gatekeeper problem. Catch it here instead.
 verify:
+	@test -f "$(CONTENTS)/Resources/Third-Party Notices.md" || { \
+		echo "error: third-party notices are missing from the app bundle"; exit 1; }
 	@archs="$$(lipo -archs "$(CONTENTS)/MacOS/$(APP_NAME)")"; \
 	echo "  app archs      : $$archs"; \
 	case "$$archs" in *x86_64*) ;; *) \
@@ -122,6 +125,7 @@ verify:
 		fi; \
 	done
 	@codesign --verify --strict "$(APP)" && echo "  signature      : ok"
+	@echo "  legal notices  : bundled"
 
 # `make app` tolerates an arm64-only bundle so the UI can be exercised on the
 # M4. The zip is what actually goes to Rosy, so it does not.

@@ -5,6 +5,7 @@ Package.resolved
 
 # Build output
 dist/
+Support/icons/AppIcon.icns
 
 # llama-server payloads, fetched per-machine by scripts/fetch-llama-server.sh
 vendor/

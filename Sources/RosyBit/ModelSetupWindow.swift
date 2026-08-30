@@ -112,7 +112,7 @@ struct ModelSetupView: View {
             if downloader.state.isBusy {
                 Button("Cancel") { downloader.cancel() }
             } else {
-                Button(downloadTitle) { downloader.start() }
+                Button(downloadTitle) { downloader.retry() }
                     .keyboardShortcut(.defaultAction)
             }
         }
@@ -124,9 +124,9 @@ struct ModelSetupView: View {
 
     private var description: String {
         if models.models.isEmpty {
-            return "Bonsai 1.7B is a 1-bit model, about 240 MB on disk. It goes in "
-                + "Application Support, outside the app, so it can be swapped later "
-                + "without reinstalling."
+            return "Bonsai 1.7B by Prism ML is a 1-bit model, about 240 MB on disk. "
+                + "It goes in Application Support, outside the app, so it can be "
+                + "swapped later without reinstalling."
         }
         return "Models live in Application Support, outside the app. Bigger ones answer "
             + "short prompts perfectly well on modest hardware — it is long input that "

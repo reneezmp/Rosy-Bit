@@ -1,119 +1,161 @@
 # 🌸 Rosy Bit
 
-**A tiny always-on local LLM server for a 2017 MacBook, in a menu bar app.**
+**A small, private home for local AI on the Macs the industry has already
+decided to forget.**
 
-Rosy is a MacBook Retina 12″ (2017) — Core m3, 16 GB, fanless. She has no
-Foundation Models and barely supports local ones. Rosy Bit solves that a
-little: a `llama-server` running the 1-bit Bonsai 1.7B model, entirely on CPU,
-exposing an OpenAI-compatible endpoint that anything on the machine can call
-for small helper tasks — titles, tags, summaries, tone rewrites.
+Rosy is a 12-inch Retina MacBook from 2017: a fanless Core m3, 16 GB of memory,
+and considerably more life in her than a support matrix would have you believe.
+She cannot use Apple Intelligence or the Foundation Models framework. She can,
+however, run a genuinely 1-bit language model on her own CPU—and make that model
+available to every compatible app on the machine.
 
-Modelled on Ollama's shape: launches at login, no window, sits in the menu bar,
-click to start or stop.
+Rosy Bit exists because *old* is not the same as *useless*. A computer should
+not become waste merely because a corporation has moved the velvet rope. Old
+silicon does not need to impersonate a data centre; it needs work shaped to its
+strengths. A title. A tag. A careful rewrite. A short summary. A little local
+companion waiting in the menu bar.
 
-```
-● Running — 127.0.0.1:1337
-──────────────────────────
-Model                    ▸
-Stop Server
-Copy Endpoint URL
-Open Log
-──────────────────────────
-☑ Launch at Login
-Quit Rosy Bit          ⌘Q
-```
+**Everyone deserves a chance. Machines included.** 🌱
 
-## What it is, precisely
+## What V1 does
 
-A **house LLM endpoint** for anything that accepts a custom OpenAI-compatible
-base URL — Obsidian plugins, indie Mac AI apps, your own scripts and MCP
-tooling.
+Rosy Bit is a native macOS menu bar app that supervises `llama-server` and
+provides an OpenAI-compatible endpoint:
 
-```
+```text
 http://127.0.0.1:1337/v1
 ```
 
-It is **not** a replacement for Apple's Foundation Models. That is an OS-level
-Swift framework; apps call `SystemLanguageModel` in-process, and there is no
-base URL, environment variable, or proxy hook to redirect. On Intel the
-framework isn't present at all, so those apps aren't falling back to something
-interceptable — the feature simply isn't offered. Aim this at the things that
-*do* have a base URL field, and it earns its keep.
+V1 includes:
 
-Port **1337** matches Osaurus on the M4, so a config pointing at
-`localhost:1337` works on either machine unmodified.
+- a universal Intel + Apple Silicon app targeting macOS Ventura 13 and later;
+- first-run downloads for Bonsai 1.7B, plus 4B and 8B choices in the model menu;
+- actual GGUF file sizes beside installed model names;
+- a configurable global Ask bar, initially **⌥Space**;
+- streamed answers with native Markdown, bounded height, and scrolling;
+- compact local context on every user turn, such as
+  `[Timestamp: 2026-08-30 13:50 BRT]`;
+- an in-memory Insights window for prompts, responses, parameters, and timing;
+- settings for ports, context, threads, slots, KV cache, sampling, CORS, the
+  system prompt, and the Ask shortcut;
+- safe cancellation, orphan cleanup, port-collision reporting, and launch at
+  login; and
+- no account, subscription, cloud inference, telemetry, or background polling.
+
+The sakura remains quiet when Rosy is quiet. During inference, a green light
+appears beside it—not because everything needs an animation, but because a
+fanless machine deserves to tell you when it is thinking. 🌸
+
+## What Rosy Bit is for
+
+Bonsai 1.7B at 1 bit is a **little helper**, not an oracle. It is well suited to
+titles, tags, classification, extraction, tone rewrites, brief explanations,
+and short summaries. It can drift or invent details in long answers, and long
+inputs become slow on Rosy's two CPU cores. The app exposes larger Bonsai models
+for jobs where quality is worth the wait, but it does not pretend physics has
+been defeated.
+
+Anything that accepts a custom OpenAI-compatible base URL can use Rosy Bit:
+Obsidian plugins, transcription tools, indie Mac apps, scripts, and local
+automation. Port 1337 deliberately matches Osaurus on a newer Mac, so the same
+client configuration can follow Renée from one machine to the other.
+
+Rosy Bit is **not** a replacement for Apple's Foundation Models. That is an
+in-process OS framework with no endpoint to redirect; on unsupported Intel Macs,
+the feature simply is not present. Rosy Bit serves the open door instead: apps
+that let their users choose where inference happens.
+
+## Privacy and boundaries
+
+- The server binds to `127.0.0.1`, never the LAN.
+- Models live in `~/Library/Application Support/RosyBit/`, outside the app.
+- Insights retains at most a bounded in-memory history and disappears when the
+  app quits; it is never written to disk.
+- Captured credentials are redacted and oversized bodies are truncated.
+- Rosy Bit currently gives the model no shell, files, macOS controls, or other
+  tools. The only exposed capability is text generation.
+
+If browser access is not needed, CORS can be restricted in Settings. Loopback
+keeps other machines out; CORS controls pages running in your own browser.
 
 ## The stack
 
-| Layer | Choice | Why |
+| Layer | Choice | Reason |
 |---|---|---|
-| Model | Bonsai 1.7B, `Q1_0` GGUF | 0.25 GB on disk, negligible resident footprint |
-| Runtime | `llama-server`, upstream llama.cpp | already an OpenAI-compatible endpoint; no wrapper needed |
-| Wrapper | Swift menu bar app | `MenuBarExtra` + `Process` + `SMAppService`, deployment target 13.0 |
+| Model | Prism ML Bonsai 1.7B, GGUF `Q1_0` | end-to-end 1-bit weights and roughly 0.24 GB on disk |
+| Runtime | upstream `llama-server` | mature CPU inference and an OpenAI-compatible API |
+| App | Swift, AppKit, SwiftUI | native menu bar behavior with no third-party package dependency |
+| Compatibility | macOS 13+, x86_64 + arm64 | one build for Rosy's native Ventura, OCLP Sequoia, and newer Macs |
 
-`Q1_0` is **merged into upstream llama.cpp** ([#21273], with the x86-optimized
-CPU kernel in [#21636]) — PrismML's `prism` fork is only needed for ternary
-`Q2_0`. That matters: it means stock source builds work if a prebuilt binary
-won't cooperate on Ventura.
+`Q1_0` support is now in upstream llama.cpp ([#21273]), including its optimized
+x86 CPU kernel ([#21636]). Rosy Bit therefore does not require Prism ML's fork
+for the binary Bonsai family; that fork remains relevant to ternary `Q2_0`.
 
-Deployment target **13.0** because `MenuBarExtra` and `SMAppService` both land
-exactly in Ventura — one target covers both sides of Rosy's boot picker with
-zero conditional code.
+## Build and install
 
-## Getting started
+The complete, machine-by-machine procedure—including Ventura binary checks,
+manual smoke tests, performance measurements, and troubleshooting—is in the
+**[runbook](docs/RUNBOOK.md)**.
 
-**→ [docs/RUNBOOK.md](docs/RUNBOOK.md)** — every command, in order, with the
-output you should see.
-
-The short version:
+For a universal build on a Mac with full Xcode:
 
 ```bash
-# On Rosy — this is the whole project. Nothing else matters until it passes.
-./scripts/fetch-llama-server.sh x86_64
-./scripts/fetch-model.sh
-./scripts/run-by-hand.sh          # then, in another terminal:
-./scripts/smoke-test.sh
-
-# On the M4 — build the wrapper
+git clone https://github.com/reneezmp/Rosy-Bit.git
+cd Rosy-Bit
 ./scripts/fetch-llama-server.sh
-make app && make dist
-
-# Back on Rosy — install
-unzip RosyBit.zip && mv RosyBit.app /Applications/
-xattr -dr com.apple.quarantine /Applications/RosyBit.app
-open /Applications/RosyBit.app
+make app
+./scripts/install.sh --no-build
 ```
 
-Either machine can build it. Rosy needs only the Command Line Tools: `make app`
-notices there is no XCBuild, builds for the host architecture, and skips the
-copy entirely. Building on the M4 needs full Xcode but produces a Universal
-bundle that runs on both — the macOS SDK is still Universal for back
-deployment, so targeting Ventura from Apple Silicon is a normal supported path.
+Rosy can also build her own Intel-only copy with the Command Line Tools. On the
+first launch, the app offers to download a model. Models and runtime binaries
+are deliberately absent from Git history.
 
-## Layout
+Useful project references:
 
+- **[Runbook](docs/RUNBOOK.md)** — build, installation, configuration, and repair
+- **[Testing](docs/TESTING.md)** — automated coverage and real-machine checks
+- **[Roadmap](docs/ROADMAP.md)** — what V1 settled and what comes next
+- **[Changelog](CHANGELOG.md)** — release history
+- **[Third-party notices](THIRD_PARTY_NOTICES.md)** — licenses and attribution
+
+## Acknowledgements
+
+Rosy Bit is **created using Bonsai by Prism ML**. Bonsai is the reason a useful
+language model fits on Rosy at all, and that work deserves more than a filename
+hidden in a download script. The Bonsai GGUF release is Apache-2.0, descends
+from Apache-2.0 Qwen3-1.7B, and is downloaded separately from the app.
+
+If you use or discuss Bonsai academically, Prism ML requests this citation:
+
+```bibtex
+@techreport{bonsai,
+  title  = {Bonsai: End-to-End 1-bit Language Model Deployment
+            Across Apple, GPU, and Mobile Runtimes},
+  author = {Prism ML},
+  year   = {2026},
+  month  = {March},
+  url    = {https://prismml.com}
+}
 ```
-Sources/RosyBit/     the app — one file per concern, all of it small
-Support/             Info.plist and both icon assets
-scripts/             fetch, run, smoke-test, and the icon generator
-docs/RUNBOOK.md      the hand-off procedure
-Makefile             build on the M4
-```
 
-Two icon assets, one sakura motif, and they are not interchangeable. The menu
-bar icon **must** be a monochrome template image — macOS tints template images
-itself to match the menu bar and appearance mode, so a rosy tint there would
-simply be discarded. The rosy tint belongs on the app icon, which is the one
-people actually see in System Settings. Both are generated from the same
-geometry by `scripts/make-icons.py`, pure standard library, no Pillow.
+Inference is powered by the MIT-licensed
+[llama.cpp](https://github.com/ggml-org/llama.cpp). The complete license text,
+Bonsai notice, upstream links, and redistribution notes live in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and are copied into every app
+bundle Rosy Bit builds.
 
-## Capability expectations
+Rosy Bit is an independent project. “Bonsai,” “Prism ML,” “Qwen,” “Apple,” and
+other third-party names belong to their respective owners; acknowledgement is
+gratitude, not endorsement or affiliation.
 
-1.7B at 1-bit does titles, tags, short summaries, classification, tone rewrites,
-and simple extraction. **It does not reason.** Apple's on-device Foundation
-model is roughly 3B and aimed at the same class of task — so the match to
-"little helper" work is genuinely reasonable. This is the right size for the
-job, not a sad compromise.
+## The promise
+
+Rosy Bit will never make a 2017 Core m3 feel like a modern datacentre. That was
+never the promise.
+
+The promise is smaller, stranger, and more important: **we will look at what a
+machine can still become before deciding what it no longer deserves to be.**
 
 [#21273]: https://github.com/ggml-org/llama.cpp/pull/21273
 [#21636]: https://github.com/ggml-org/llama.cpp/pull/21636

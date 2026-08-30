@@ -63,6 +63,10 @@ final class ServerController: ObservableObject {
     private let proxy = ProxyServer()
     private var isStopping = false
     private var healthProbeInFlight = false
+    /// A deliberate stop normally lands in `.stopped`. A subsystem failure can
+    /// request a different final state while still using the same orderly child
+    /// termination path.
+    private var stateAfterStop: State?
 
     /// Bumped whenever a run begins or ends, so callbacks can tell whether the
     /// run they belong to is still the current one.
@@ -176,6 +180,7 @@ final class ServerController: ObservableObject {
     }
 
     func stop() {
+        stateAfterStop = nil
         guard let process, process.isRunning else {
             cleanUp()
             state = .stopped
@@ -318,10 +323,14 @@ final class ServerController: ObservableObject {
         guard token == generation else { return }
 
         let wasDeliberate = isStopping
+        let requestedState = stateAfterStop
         cleanUp()
+        stateAfterStop = nil
         try? FileManager.default.removeItem(at: Config.pidFile)
 
-        if wasDeliberate {
+        if let requestedState {
+            state = requestedState
+        } else if wasDeliberate {
             state = .stopped
         } else if signalled {
             state = .failed("llama-server was killed (signal \(status))")
@@ -338,8 +347,8 @@ final class ServerController: ObservableObject {
     private func startProxyIfEnabled() {
         guard Config.insightsEnabled else { return }
 
-        // A bind conflict arrives through onFailure rather than by throwing:
-        // NWListener reports it asynchronously once it has tried the port.
+        // Bind/listen failures throw synchronously. A later fatal accept error
+        // uses onFailure because the listener is already running by then.
         proxy.onFailure = { message in
             ServerController.shared.handleProxyFailure(message)
         }
@@ -355,9 +364,30 @@ final class ServerController: ObservableObject {
     /// not need a rebuild.
     private func handleProxyFailure(_ message: String) {
         proxy.stop()
-        state = .failed(
+        let failure = State.failed(
             "Port \(Config.port) unavailable (\(message)). Turn Insights off in Settings, "
             + "or: defaults write com.rosybit.app insightsEnabled -bool false")
+
+        guard let process, process.isRunning else {
+            cleanUp()
+            state = failure
+            return
+        }
+
+        // The public endpoint is unusable, so do not leave a hidden child on
+        // the upstream port. Keep the useful proxy error after it exits rather
+        // than replacing it with a generic deliberate-stop status.
+        stateAfterStop = failure
+        isStopping = true
+        let pid = process.processIdentifier
+        process.terminate()
+        state = failure
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            guard let self, let current = self.process, current.isRunning,
+                  current.processIdentifier == pid else { return }
+            kill(pid, SIGKILL)
+        }
     }
 
     private func cleanUp() {
@@ -382,6 +412,7 @@ final class ServerController: ObservableObject {
         logHandle = nil
         activeModelName = nil
         isStopping = false
+        stateAfterStop = nil
     }
 
     // MARK: - Logging

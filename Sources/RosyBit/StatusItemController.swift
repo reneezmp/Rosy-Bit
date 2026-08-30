@@ -176,10 +176,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             #selector(toggleServer)))
         if Config.askBarEnabled {
             let ask = item("Ask…", #selector(showAskBar))
-            // Displays ⌥Space. The global shortcut is registered separately in
-            // Carbon; this only fires while Rosy Bit is frontmost.
-            ask.keyEquivalent = " "
-            ask.keyEquivalentModifierMask = [.option]
+            // The global shortcut is registered separately in Carbon; this
+            // mirrors the same current combination while Rosy Bit is frontmost.
+            ask.keyEquivalent = Self.menuKeyEquivalent(for: Config.hotKeyCode)
+            ask.keyEquivalentModifierMask = Self.menuModifiers(
+                fromCarbonMask: Config.hotKeyModifiers)
             menu.addItem(ask)
         }
         menu.addItem(item("Copy Endpoint URL", #selector(copyEndpoint)))
@@ -225,7 +226,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         } else {
             for url in models {
                 let entry = item(
-                    url.deletingPathExtension().lastPathComponent, #selector(selectModel(_:)))
+                    ModelStore.menuTitle(for: url), #selector(selectModel(_:)))
                 entry.representedObject = url
                 entry.state = ModelStore.shared.isSelected(url) ? .on : .off
                 submenu.addItem(entry)
@@ -271,6 +272,28 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         entry.target = self
         entry.isEnabled = true
         return entry
+    }
+
+    private static func menuKeyEquivalent(for keyCode: Int) -> String {
+        switch keyCode {
+        case 49: return " "
+        case 36: return "\r"
+        case 44: return "/"
+        case 11: return "b"
+        case 38: return "j"
+        case 40: return "k"
+        case 15: return "r"
+        default: return ""
+        }
+    }
+
+    private static func menuModifiers(fromCarbonMask mask: Int) -> NSEvent.ModifierFlags {
+        var modifiers: NSEvent.ModifierFlags = []
+        if mask & 256 != 0 { modifiers.insert(.command) }
+        if mask & 512 != 0 { modifiers.insert(.shift) }
+        if mask & 2048 != 0 { modifiers.insert(.option) }
+        if mask & 4096 != 0 { modifiers.insert(.control) }
+        return modifiers
     }
 
     // MARK: - Actions

@@ -21,8 +21,7 @@ or build any Swift until the smoke test passes.
 
 ```bash
 mkdir -p ~/Developer
-git clone -b claude/rosy-bit-planning-90xr0a \
-  https://github.com/reneezmp/Rosy-Bit.git ~/Developer/rosy-bit
+git clone https://github.com/reneezmp/Rosy-Bit.git ~/Developer/rosy-bit
 cd ~/Developer/rosy-bit
 ```
 
@@ -109,6 +108,11 @@ Expected: `installed /Users/you/Library/Application Support/RosyBit/Bonsai-1.7B-
 Hugging Face API which files exist rather than guessing the filename; override
 with `MODEL_FILE=...` if you want a specific one.
 
+Rosy Bit is created using Bonsai by Prism ML. The model is Apache-2.0, built
+from Apache-2.0 Qwen3-1.7B, and downloaded separately rather than embedded in
+the app. See [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) for the
+requested citation and upstream license links.
+
 ### 1c. Run it by hand
 
 ```bash
@@ -174,8 +178,7 @@ rest of this step and then step 3.
 
 ```bash
 mkdir -p ~/Developer
-git clone -b claude/rosy-bit-planning-90xr0a \
-  https://github.com/reneezmp/Rosy-Bit.git ~/Developer/rosy-bit
+git clone https://github.com/reneezmp/Rosy-Bit.git ~/Developer/rosy-bit
 cd ~/Developer/rosy-bit
 
 ./scripts/fetch-llama-server.sh     # both slices this time
@@ -252,17 +255,21 @@ open /Applications/RosyBit.app
 `scp` does not set the quarantine attribute; AirDrop and browser downloads do.
 Running `xattr -dr` is harmless either way.
 
-A sakura appears in the menu bar. No Dock icon, no window — `LSUIElement` is
-set, so the menu bar item is the entire interface.
+A sakura appears in the menu bar. There is no Dock icon or permanent main
+window—`LSUIElement` keeps Rosy Bit out of the Dock—but the menu can open the
+Ask bar, Settings, Insights, the model downloader, and the log.
 
 ```
 ● Running — 127.0.0.1:1337
 ──────────────────────────
 Model                    ▸
 Stop Server
+Ask…                  ⌥Space
 Copy Endpoint URL
+Insights…
 Open Log
 ──────────────────────────
+Settings…                 ⌘,
 ☑ Launch at Login
 Quit Rosy Bit          ⌘Q
 ```
@@ -361,8 +368,9 @@ something interceptable; the feature simply isn't offered.
 
 ## Configuration
 
-The port is fixed at 1337 for parity with Osaurus. The rest can be changed
-without a rebuild:
+The public port defaults to 1337 for parity with Osaurus. It and the other
+runtime settings can be changed in **Settings…** or with `defaults` without a
+rebuild:
 
 ```bash
 defaults write com.rosybit.app threads -int 1        # if the UI stutters
@@ -392,23 +400,22 @@ head_dim 128 — which is 112 KiB of KV cache per token at f16:
 | 8192 | 917 MiB | **1.28 GB** |
 | 32768 | 3.6 GiB | ~4 GB (extrapolated) |
 
-Measured on Rosy with `ps -o rss= -p $(lsof -ti tcp:1337 -sTCP:LISTEN)`: at
-8192 the whole process is 1.28 GB, which is the 0.9 GiB of cache plus 0.24 GB
-of weights plus buffers. Use that command rather than trusting the table.
+Measured on Rosy before the Insights proxy moved llama-server to its private
+port: at 8192 the whole server process was 1.28 GB, which is the 0.9 GiB of
+cache plus 0.24 GB of weights plus buffers. With Insights enabled, measure it
+using `ps -o rss= -p $(lsof -ti tcp:11337 -sTCP:LISTEN)` rather than the public
+1337 port, which belongs to the Rosy Bit proxy.
 
-That figure is for `parallelSlots` at 1, so it says nothing about what four
-slots would cost. llama-server reports `kv_unified = 'true'`, which *suggests*
-slots share one cache rather than each holding a full context — but that is
-unverified. If it ever matters, set `parallelSlots -int 4`, restart, and run
-the `ps` line again: roughly 1.3 GB means shared, roughly 4 GB means not.
+That 1.28 GB figure was measured with `parallelSlots` at 1, so it does not say
+what multiple slots cost. llama-server reports `kv_unified = 'true'`, which
+*suggests* slots share one cache rather than each holding a full context—but
+that remains unverified.
 
-Rosy Bit sets `parallelSlots` to **1**, and it turns out to buy speed as well
-as memory. At a ~1300-token prompt, generation measured 2.98 tok/s on four
-slots and 3.70 tok/s on one — about 24% faster. Short prompts were unaffected
-(6.61 vs 6.83 tok/s), which fits a cache-locality explanation: the larger
-shared KV buffer costs more to scan the fuller it gets. The two runs also
-differed in `contextSize`, so treat the figure as indicative rather than
-controlled. Raise it only if something genuinely needs concurrency.
+V1 defaults to **2 slots** so Rosy Bit's Ask requests and an external client can
+retain different cached prefixes. Four slots measured about 24% slower than one
+at a ~1300-token prompt (2.98 against 3.70 tok/s); short prompts were almost
+unchanged (6.61 against 6.83 tok/s). Two slots are the deliberate middle ground,
+but their exact speed and memory cost still belong on the measurement list.
 
 ```bash
 defaults write com.rosybit.app parallelSlots -int 2

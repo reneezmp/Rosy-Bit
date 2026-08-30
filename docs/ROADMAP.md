@@ -1,201 +1,106 @@
-# Roadmap
+# Rosy Bit roadmap
 
-Rosy Bit does its job: an always-on OpenAI-compatible endpoint on Rosy, proven
-against MacWhisper on real transcripts. These are the things that would make it
-pleasant rather than merely working.
+V1 proved the premise: a fanless 2017 Intel Mac can host a useful, private local
+language model behind a native Mac interface. The roadmap is not a race to bolt
+on every AI fashion. Each addition must respect Rosy's limited compute, Renée's
+privacy, and the project's reason for existing: finding dignified work for
+hardware other people have written off.
 
----
+## V1 — shipped
 
-## 1. Inference indicator — done
+- Universal macOS 13+ app for Intel and Apple Silicon.
+- OpenAI-compatible loopback endpoint backed by `llama-server`.
+- Ventura-safe recording proxy and memory-only Insights.
+- Configurable global Ask bar with streaming Markdown and bounded scrolling.
+- Compact, labelled local timestamps on every user turn.
+- First-run Bonsai download, 1.7B/4B/8B choices, and real installed sizes.
+- Settings for inference, sampling, cache, ports, CORS, prompt, and shortcut.
+- Inference indicator, cancellation, login launch, logs, and careful orphan
+  handling.
+- Automated protocol and presentation regressions plus a real-machine checklist.
+- Prism ML/Bonsai attribution and third-party notices inside the app bundle.
 
-A green dot beside the sakura while llama-server has a request in flight, and
-`◐ Working — N requests` on the menu's status line.
+The implementation history and release summary are in
+[`CHANGELOG.md`](../CHANGELOG.md). The checks that still need physical machines
+or real clients remain in [`TESTING.md`](TESTING.md).
 
-It costs nothing to run. `ServerLogScanner` already reads llama-server's output
-on its way to the log file, and that output announces both `launch_slot_ …
-processing task` and `release: … stop processing`. Counting those is free, so
-the indicator holds to the same rule as everything else here: **no timers, no
-polling, nothing that wakes a fanless machine on a schedule.**
+## V1.1 candidates
 
-Getting the colour required moving the menu bar item off `MenuBarExtra`. A menu
-bar icon has to be a template image so macOS can tint and invert it, and a
-template image is monochrome — anything coloured inside a `MenuBarExtra` label
-is flattened with the rest. Osaurus's answer is to leave the image a template
-and add the dot as a sibling `NSView` on the status bar button, where its layer
-keeps its own colour; `MenuBarExtra` never exposes its `NSStatusItem`, so the
-menu is built with `NSMenu` in `StatusItemController` instead.
+### Chat window
 
----
+`ChatClient` is already proven by the Ask bar. A full window would add a
+collapsible conversation sidebar and proper message bubbles, with the compact
+time visible in the UI and the complete timestamp retained in the payload.
 
-## 2. Settings window — done
+The unresolved choice is persistence. Insights is intentionally memory-only
+because it may contain legal meeting transcripts. Saving chat history by
+default would quietly violate that design. Sensible options are:
 
-The mechanism already exists as `defaults` keys: `contextSize`, `threads`,
-`parallelSlots`, `kvCacheType`, `temperature`, `corsOrigins`, `port`. What is
-missing is somewhere to see and change them.
+1. memory-only conversations;
+2. explicit per-conversation saving; or
+3. encrypted local history with a visible retention control.
 
-A `Settings { }` scene coexists with `LSUIElement` — it opens a window on
-demand without giving the app a Dock icon or a main window.
+That decision comes before the interface.
 
-Design notes:
+### Dictionary tool
 
-- **Temperature must be labelled a fallback, not a setting.** An
-  OpenAI-compatible client that sends its own `temperature` overrides the
-  server's, and most do. A slider that silently does nothing for MacWhisper
-  would be worse than no slider.
-- **Show the memory arithmetic.** `contextSize` × 112 KiB per token is the
-  number that actually matters, and it is not obvious from a token count. The
-  window should update it as the values change. Whether slots multiply it is
-  unverified — do not state a figure that has not been measured.
-- Changing anything requires restarting the server; the window should say so
-  and offer to do it rather than leaving the user to guess.
+A read-only `dictionary.lookup(term)` tool can use macOS Dictionary Services and
+the dictionaries already enabled on the machine. It is the safest first tool:
+local, bounded, reversible, and useful for a small model.
 
----
+### Small, native macOS controls
 
-## 3. Insights — done (proxy route)
+Volume is feasible through Core Audio without screen automation. Rosy Bit
+should expose narrow operations such as `volume.get`, `volume.set(0...100)`,
+and `volume.mute` through a validated tool-call loop.
 
-The one that changes the architecture. Modelled on Osaurus's Insights pane: a
-list of requests, and per request a Prompt view (system/user turns laid out),
-the raw Request JSON, the Response, and Params (model, tokens in → out, tok/s,
-finish reason, status, duration).
+The model must never receive unrestricted shell access. Tool requests are
+structured, allowlisted, range-checked, executed by native code, and returned to
+the model as observations. Read-only tools come before state-changing ones.
 
-**Prompt, Request and Response all need the message bodies, and Rosy Bit cannot
-see them.** Osaurus can because Osaurus *is* the server. We supervise someone
-else's binary and never touch its traffic. Only the Params tab could be
-reconstructed from the log, which already carries token counts and timings.
+### Native 1-bit model laboratory
 
-So there are two versions, and they are not the same project:
+Bonsai remains the default because it already works across Rosy's Intel Ventura
+installation and newer Apple Silicon. Worth benchmarking next:
 
-### 3a. Log-derived (cheap, no risk)
+- Microsoft BitNet b1.58 2B-4T;
+- Falcon-E 1B Instruct; and
+- Falcon-E 3B Instruct.
 
-Parse what `ServerLogScanner` already sees: timestamps, prompt and generated
-token counts, tok/s, durations. Roughly the Params tab and the request list.
-**No prompts, no responses.** Nothing in the request path changes, so this
-cannot break the endpoint.
+They are natively ternary rather than post-training 1-bit conversions, but they
+may require a second runtime based on `bitnet.cpp`. A GGUF filename does not
+guarantee compatibility with Rosy Bit's bundled llama.cpp build.
 
-### 3b. Reverse proxy (the real thing)
+No model enters the download menu on marketing claims alone. The comparison
+must measure answer quality, time to first token, generation speed, peak memory,
+long-context degradation, Intel compatibility, license, and runtime maturity.
 
-Move llama-server to a private port and have Rosy Bit take 1337, forwarding
-each request and recording both sides. Full fidelity — everything in the
-screenshots.
+## Later, if earned
 
-The costs, stated plainly:
+### Per-origin browser permission prompts
 
-- **It puts the app in the hot path.** Today Rosy Bit is a supervisor: if it
-  crashes, llama-server carries on serving. As a proxy, an app bug becomes an
-  outage.
-- **Streaming must be forwarded, not buffered.** Clients send `"stream": true`
-  and expect Server-Sent Events to arrive incrementally. Buffer them by
-  accident and every response appears to hang until it is complete — which, at
-  2 tok/s on a long generation, looks exactly like a crash.
-- Token counts have to be parsed out of the final SSE chunk rather than read
-  from the log.
+Replace the manual CORS allowlist with deny / allow once / always prompts.
+Requests must remain safely suspended while the user decides, and hostile pages
+must not be able to spam permission windows.
 
-### What to carry over from Osaurus
+### Developer ID signing and notarisation
 
-Worth stealing outright, from `Packages/OsaurusCore/Managers/InsightsService.swift`:
+V1 is ad-hoc signed. A Developer ID release would remove the quarantine command
+from installation, but it introduces an Apple account, certificates,
+notarisation, and recurring operational work. It is convenience—not a condition
+of Rosy Bit being legitimate software.
 
-- **A ring buffer, in memory, never written to disk** (Osaurus keeps 500).
-  This matters more here than there: Rosy goes to the courthouse, and an
-  Insights buffer would be holding meeting transcripts. Memory-only plus a
-  Clear button means quitting the app is enough to erase them.
-- **Redact credentials from every body before storing it**, as defence in
-  depth, rather than trusting each call site to have scrubbed its own.
-- **Truncate large bodies but report the original size**, so a clipped prompt
-  is obviously clipped.
-- **Debounce the filter pipeline.** Osaurus's own comment records that
-  recomputing filters inside the view body was a measurable problem under
-  load; they settled on 200 ms.
+### Additional system tools
 
----
+Calendar, reminders, Shortcuts, files, or automation only after the tool layer
+has explicit confirmation rules, an audit trail, and per-capability switches.
+The project grows by consent, not by quietly accumulating authority.
 
-## 4. First-run model download — done
+## Permanent guardrails
 
-The model lives outside the bundle so it can be swapped without rebuilding,
-which left a fresh install needing `fetch-model.sh` by hand — the only script
-an app *user*, as opposed to someone building or validating, had to touch.
-
-`ModelDownloader` mirrors that script: ask the Hugging Face API which files
-exist rather than guessing the filename, then verify before moving into place.
-Verification is the GGUF magic bytes as well as the HTTP status, so a 404 page
-or a truncated transfer fails with a clear message instead of becoming a
-confusing llama-server crash later.
-
-One manual step remains on a fresh install and it is not ours to remove: an
-ad-hoc signed app still needs `xattr -dr com.apple.quarantine`. That needs a
-Developer ID and notarisation.
-
----
-
-## 5. Ask bar — done
-
-⌥Space opens a Spotlight-shaped panel, streams an answer, dismisses on click
-away. `GlobalHotKey` uses Carbon's `RegisterEventHotKey` rather than
-`NSEvent.addGlobalMonitorForEvents`, which would need Accessibility permission,
-or the popular third-party package, which would be this project's first
-dependency.
-
----
-
-## 6. Chat window — next
-
-The remaining item. `ChatClient` already exists and is proven by the ask bar, so
-this is mostly UI: `NavigationSplitView` gives the collapsible sidebar on
-macOS 13, and a system prompt is already a stored setting.
-
-**The open question is history storage.** Insights is memory-only by deliberate
-choice, because it holds meeting transcripts. Chat history written to disk would
-quietly contradict that — conversations would outlive the app. Decide that
-before building it, not after.
-
-Worth knowing before judging the speed: llama-server caches the KV of the
-previous prompt per slot and reuses the longest common prefix. A conversation is
-exactly that shape, so turn N only processes the new message rather than the
-whole history — provided nothing else hits the server in between and evicts it.
-
----
-
-## Ideas not yet taken
-
-### Per-origin browser prompts instead of an allow-list
-
-Start closed, and when a browser origin calls for the first time show
-deny / allow once / always allow, remembering the last of those.
-
-Nicer than asking someone to type an origin into a field, and it is how
-permissions should work. Two things make it more than it looks. The proxy would
-have to hold a request open while a dialog is answered, and browsers cache
-preflights, so a wrong answer is sticky in a way that is hard to explain. And
-the origin is chosen by whoever is calling, so a hostile page can spam the
-prompt.
-
-Worth doing, but the exposure it closes is CPU time rather than data — the model
-has no tools and no file access — so it ranks below anything on the current bug
-list.
-
-### Other Bonsai sizes in the Model menu
-
-`ModelDownloader` already resolves a filename from a repository and verifies
-what it fetches, so listing 4B and 8B alongside 1.7B and downloading on demand
-is mostly menu plumbing.
-
-Size and input length multiply, which is the useful way to think about it
-rather than sorting models by machine. A 4B is roughly 2.5x the compute of the
-1.7B, so on Rosy a short one-shot prompt goes from about 7 tok/s to about 3 —
-fifteen seconds for a title, which is fine, and confirmed in use. The same 4B
-against a 5000-token transcript multiplies a wait that is already ten minutes.
-
-So the menu should carry a hint about the pairing, not a blanket warning: bigger
-models suit short prompts on Rosy and anything on the M4; long input is what
-rules them out, on either machine.
-
----
-
-## Order
-
-Five of six have landed; the chat window is the one left. 3b (the proxy) was
-taken directly rather than shipping 3a first, because the Prompt, Request and
-Response tabs are the point and only the proxy can supply them.
-
-**None of items 3 to 5 has ever run.** They were written without a compiler
-while the machines that can build them were unavailable. `docs/TESTING.md` is
-the list, ordered so an early failure explains the later ones.
+- Loopback by default; never expose inference to the LAN accidentally.
+- No telemetry, account, subscription, or cloud fallback.
+- No background polling merely to make an indicator animate.
+- No transcript persistence hidden behind a friendly interface.
+- No arbitrary command execution delegated to a probabilistic model.
+- No abandoning Ventura while Rosy can still do the work.

@@ -45,9 +45,13 @@ final class ModelDownloader: NSObject, ObservableObject {
     /// Called once a model has landed and been verified.
     var onInstalled: ((URL) -> Void)?
 
+    private var resolutionTask: URLSessionDataTask?
     private var task: URLSessionDownloadTask?
     private var pendingFilename: String?
     private var activeRepository = Config.modelRepository
+    /// Invalidates callbacks from a canceled lookup/download before another
+    /// operation is allowed to reuse the same singleton.
+    private var generation = 0
 
     private lazy var session: URLSession = {
         let configuration = URLSessionConfiguration.default
@@ -70,21 +74,33 @@ final class ModelDownloader: NSObject, ObservableObject {
 
     func start(repository: String = Config.modelRepository) {
         guard !state.isBusy else { return }
+        generation += 1
+        let token = generation
         activeRepository = repository
         activeModelName = Config.knownModels.first { $0.repository == repository }?.name
         state = .resolving
-        resolveFilename { [weak self] result in
-            guard let self else { return }
+        resolveFilename(repository: repository) { [weak self] result in
+            guard let self, token == self.generation else { return }
+            self.resolutionTask = nil
             switch result {
             case .success(let filename):
-                self.beginDownload(of: filename)
+                self.beginDownload(of: filename, repository: repository)
             case .failure(let error):
                 self.state = .failed(error.localizedDescription)
             }
         }
     }
 
+    /// Repeats the repository the setup window currently names rather than
+    /// silently falling back to the app-wide default.
+    func retry() {
+        start(repository: activeRepository)
+    }
+
     func cancel() {
+        generation += 1
+        resolutionTask?.cancel()
+        resolutionTask = nil
         task?.cancel()
         task = nil
         pendingFilename = nil
@@ -93,8 +109,10 @@ final class ModelDownloader: NSObject, ObservableObject {
 
     // MARK: - Steps
 
-    private func resolveFilename(completion: @escaping (Result<String, Failure>) -> Void) {
-        let repository = activeRepository
+    private func resolveFilename(
+        repository: String,
+        completion: @escaping (Result<String, Failure>) -> Void
+    ) {
         guard let url = URL(string: "https://huggingface.co/api/models/\(repository)") else {
             return completion(.failure(Failure("Invalid model repository: \(repository)")))
         }
@@ -102,7 +120,7 @@ final class ModelDownloader: NSObject, ObservableObject {
         var request = URLRequest(url: url)
         request.timeoutInterval = 20
 
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        let task = URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
                 if let error {
                     return completion(.failure(Failure("Could not reach Hugging Face: \(error.localizedDescription)")))
@@ -125,10 +143,12 @@ final class ModelDownloader: NSObject, ObservableObject {
                 }
                 completion(.success(match))
             }
-        }.resume()
+        }
+        resolutionTask = task
+        task.resume()
     }
 
-    private func beginDownload(of filename: String) {
+    private func beginDownload(of filename: String, repository: String) {
         let name = (filename as NSString).lastPathComponent
         let destination = Config.modelDirectory.appendingPathComponent(name)
         guard !FileManager.default.fileExists(atPath: destination.path) else {
@@ -139,7 +159,7 @@ final class ModelDownloader: NSObject, ObservableObject {
 
         let escaped = filename.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? filename
         guard let url = URL(
-            string: "https://huggingface.co/\(activeRepository)/resolve/main/\(escaped)?download=true")
+            string: "https://huggingface.co/\(repository)/resolve/main/\(escaped)?download=true")
         else {
             state = .failed("Could not build a download URL for \(name)")
             return
@@ -172,6 +192,7 @@ extension ModelDownloader: URLSessionDownloadDelegate {
         totalBytesWritten: Int64,
         totalBytesExpectedToWrite: Int64
     ) {
+        guard task === downloadTask else { return }
         state = .downloading(received: totalBytesWritten, expected: totalBytesExpectedToWrite)
     }
 
@@ -180,6 +201,7 @@ extension ModelDownloader: URLSessionDownloadDelegate {
         downloadTask: URLSessionDownloadTask,
         didFinishDownloadingTo location: URL
     ) {
+        guard task === downloadTask else { return }
         // The temporary file is removed as soon as this returns, so everything
         // here has to happen now rather than asynchronously.
         guard let name = pendingFilename else { return }
@@ -213,6 +235,7 @@ extension ModelDownloader: URLSessionDownloadDelegate {
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard self.task === task else { return }
         self.task = nil
         guard let error else { return }  // success already handled above
 

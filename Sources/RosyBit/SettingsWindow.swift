@@ -113,6 +113,7 @@ final class SettingsModel: ObservableObject {
 
         let defaults = UserDefaults.standard
         let restartNeeded = values.needsServerRestart(comparedTo: saved)
+        let serverWasBusy = ServerController.shared.state.isBusy
         let shortcutChanged = values.hotKeyCode != saved.hotKeyCode
             || values.hotKeyModifiers != saved.hotKeyModifiers
             || values.askBarEnabled != saved.askBarEnabled
@@ -143,7 +144,7 @@ final class SettingsModel: ObservableObject {
         if shortcutChanged {
             AskBarWindowController.shared.registerHotKey()
         }
-        if restartNeeded {
+        if restartNeeded && serverWasBusy {
             ServerController.shared.restart()
             show(notice: "Saved — restarting the server")
         } else {
@@ -160,6 +161,8 @@ final class SettingsModel: ObservableObject {
     }
 
     func restoreDefaults() {
+        let previous = saved
+        let serverWasBusy = ServerController.shared.state.isBusy
         let defaults = UserDefaults.standard
         for key in [
             "contextSize", "threads", "parallelSlots", "kvCacheType", "flashAttention",
@@ -170,7 +173,20 @@ final class SettingsModel: ObservableObject {
             defaults.removeObject(forKey: key)
         }
         load()
-        show(notice: "Restored")
+
+        let shortcutChanged = values.hotKeyCode != previous.hotKeyCode
+            || values.hotKeyModifiers != previous.hotKeyModifiers
+            || values.askBarEnabled != previous.askBarEnabled
+        if shortcutChanged {
+            AskBarWindowController.shared.registerHotKey()
+        }
+
+        if values.needsServerRestart(comparedTo: previous) && serverWasBusy {
+            ServerController.shared.restart()
+            show(notice: "Restored — restarting the server")
+        } else {
+            show(notice: "Restored")
+        }
     }
 
     private func show(notice: String) {

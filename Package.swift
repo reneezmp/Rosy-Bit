@@ -12,6 +12,11 @@ let package = Package(
         .executableTarget(
             name: "RosyBit",
             path: "Sources/RosyBit"
-        )
+        ),
+        .testTarget(
+            name: "RosyBitTests",
+            dependencies: ["RosyBit"],
+            path: "Tests/RosyBitTests"
+        ),
     ]
 )
