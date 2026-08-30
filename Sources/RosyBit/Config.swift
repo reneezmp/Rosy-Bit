@@ -52,6 +52,38 @@ enum Config {
     /// Which quantisation to prefer among the `.gguf` files in that repository.
     static var modelQuant: String { nonEmptyString("modelQuant") ?? "Q1_0" }
 
+    /// A Bonsai size the menu can offer to fetch.
+    struct KnownModel: Identifiable {
+        let name: String
+        let repository: String
+        let billions: Double
+        /// Matched against the files on disk to tell whether this one is here.
+        let filenameHint: String
+
+        var id: String { repository }
+
+        /// Q1_0 packs about 1.125 bits per weight, which is close enough to
+        /// tell someone what they are about to download.
+        var approximateBytes: Int64 { Int64(billions * 1e9 * 1.125 / 8) }
+
+        var approximateSize: String {
+            ByteCountFormatter.string(fromByteCount: approximateBytes, countStyle: .file)
+        }
+    }
+
+    /// Size and prompt length multiply, so the right model depends on the job
+    /// rather than the machine: a 4B answers a short prompt on Rosy in seconds,
+    /// and the same 4B against a whole transcript multiplies a wait that is
+    /// already minutes.
+    static let knownModels: [KnownModel] = [
+        KnownModel(name: "Bonsai 1.7B", repository: "prism-ml/Bonsai-1.7B-gguf",
+                   billions: 1.7, filenameHint: "1.7B"),
+        KnownModel(name: "Bonsai 4B", repository: "prism-ml/Bonsai-4B-gguf",
+                   billions: 4, filenameHint: "4B"),
+        KnownModel(name: "Bonsai 8B", repository: "prism-ml/Bonsai-8B-gguf",
+                   billions: 8, filenameHint: "8B"),
+    ]
+
     /// Models live outside the bundle so they can be swapped without rebuilding.
     static var modelDirectory: URL {
         libraryDirectory

@@ -47,6 +47,7 @@ final class ModelDownloader: NSObject, ObservableObject {
 
     private var task: URLSessionDownloadTask?
     private var pendingFilename: String?
+    private var activeRepository = Config.modelRepository
 
     private lazy var session: URLSession = {
         let configuration = URLSessionConfiguration.default
@@ -63,8 +64,14 @@ final class ModelDownloader: NSObject, ObservableObject {
 
     // MARK: - Control
 
-    func start() {
+    /// Which repository the current download is from, for the setup window to
+    /// name while it runs.
+    @Published private(set) var activeModelName: String?
+
+    func start(repository: String = Config.modelRepository) {
         guard !state.isBusy else { return }
+        activeRepository = repository
+        activeModelName = Config.knownModels.first { $0.repository == repository }?.name
         state = .resolving
         resolveFilename { [weak self] result in
             guard let self else { return }
@@ -87,7 +94,7 @@ final class ModelDownloader: NSObject, ObservableObject {
     // MARK: - Steps
 
     private func resolveFilename(completion: @escaping (Result<String, Failure>) -> Void) {
-        let repository = Config.modelRepository
+        let repository = activeRepository
         guard let url = URL(string: "https://huggingface.co/api/models/\(repository)") else {
             return completion(.failure(Failure("Invalid model repository: \(repository)")))
         }
@@ -132,7 +139,7 @@ final class ModelDownloader: NSObject, ObservableObject {
 
         let escaped = filename.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? filename
         guard let url = URL(
-            string: "https://huggingface.co/\(Config.modelRepository)/resolve/main/\(escaped)?download=true")
+            string: "https://huggingface.co/\(activeRepository)/resolve/main/\(escaped)?download=true")
         else {
             state = .failed("Could not build a download URL for \(name)")
             return

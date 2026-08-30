@@ -233,7 +233,35 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
 
         submenu.addItem(.separator())
+        submenu.addItem(downloadMenuItem())
         submenu.addItem(item("Open Models Folder…", #selector(openModelsFolder)))
+        parent.submenu = submenu
+        return parent
+    }
+
+    /// The other Bonsai sizes, fetched on demand. Already-installed ones are
+    /// disabled rather than hidden, so the menu shows the whole family and
+    /// which of it is here.
+    private func downloadMenuItem() -> NSMenuItem {
+        let parent = NSMenuItem(title: "Download", action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+
+        let installed = ModelStore.shared.models.map { $0.lastPathComponent }
+        for model in Config.knownModels {
+            let present = installed.contains {
+                $0.localizedCaseInsensitiveContains(model.filenameHint)
+            }
+            let title = present
+                ? "\(model.name) — installed"
+                : "\(model.name) — \(model.approximateSize)"
+
+            let entry = item(title, #selector(downloadModel(_:)))
+            entry.representedObject = model.repository
+            entry.isEnabled = !present && !ModelDownloader.shared.state.isBusy
+            submenu.addItem(entry)
+        }
+
         parent.submenu = submenu
         return parent
     }
@@ -308,6 +336,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func showModelSetup() {
         ModelSetupWindowController.shared.show()
+    }
+
+    @objc private func downloadModel(_ sender: NSMenuItem) {
+        guard let repository = sender.representedObject as? String else { return }
+        ModelSetupWindowController.shared.show()
+        ModelDownloader.shared.start(repository: repository)
     }
 
     @objc private func toggleLoginItem() {

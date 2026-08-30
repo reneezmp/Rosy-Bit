@@ -46,12 +46,11 @@ struct ModelSetupView: View {
                 .resizable()
                 .frame(width: 64, height: 64)
 
-            Text("Rosy Bit needs a model")
+            Text(models.models.isEmpty ? "Rosy Bit needs a model" : title)
                 .font(.title3.bold())
+                .multilineTextAlignment(.center)
 
-            Text("Bonsai 1.7B is a 1-bit model, about 240 MB on disk. It goes in "
-                 + "Application Support, outside the app, so it can be swapped later "
-                 + "without reinstalling.")
+            Text(description)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -119,8 +118,24 @@ struct ModelSetupView: View {
         }
     }
 
+    private var title: String {
+        downloader.activeModelName.map { "Downloading \($0)" } ?? "Add a model"
+    }
+
+    private var description: String {
+        if models.models.isEmpty {
+            return "Bonsai 1.7B is a 1-bit model, about 240 MB on disk. It goes in "
+                + "Application Support, outside the app, so it can be swapped later "
+                + "without reinstalling."
+        }
+        return "Models live in Application Support, outside the app. Bigger ones answer "
+            + "short prompts perfectly well on modest hardware — it is long input that "
+            + "makes them slow, since size and prompt length multiply."
+    }
+
     private var downloadTitle: String {
         if case .failed = downloader.state { return "Try Again" }
+        if let name = downloader.activeModelName { return "Download \(name)" }
         return "Download Bonsai 1.7B"
     }
 
