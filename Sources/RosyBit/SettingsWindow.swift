@@ -179,7 +179,9 @@ final class SettingsModel: ObservableObject {
         noticeTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 2_500_000_000)
             guard !Task.isCancelled else { return }
-            await MainActor.run { self?.savedNotice = nil }
+            // Captured again for the inner closure rather than reaching out to
+            // the outer weak var, which Swift 6 rejects outright.
+            await MainActor.run { [weak self] in self?.savedNotice = nil }
         }
     }
 

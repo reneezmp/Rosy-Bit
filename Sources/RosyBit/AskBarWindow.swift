@@ -94,8 +94,11 @@ final class AskBarWindowController: NSWindowController, NSWindowDelegate {
     /// Belt and braces against the recursion described above ever returning.
     private var isResizing = false
 
+    static let cardWidth: CGFloat = 560
+
     private static let collapsedHeight: CGFloat = 56
     private static let maximumHeight: CGFloat = 460
+    private static let textInset: CGFloat = 32
 
     private init() {
         let panel = AskBarPanel(
@@ -170,10 +173,10 @@ final class AskBarWindowController: NSWindowController, NSWindowDelegate {
         height += 1  // divider
 
         if let error = model.errorMessage {
-            return height + textHeight(error) + 32
+            return height + textHeight(error) + Self.textInset
         }
         if !model.answer.isEmpty {
-            return height + min(textHeight(model.answer) + 32, 320) + 34  // + copy row
+            return height + min(textHeight(model.answer) + Self.textInset, 320) + 34  // + copy row
         }
         return height + 46  // "Thinking…"
     }
@@ -184,8 +187,11 @@ final class AskBarWindowController: NSWindowController, NSWindowDelegate {
         let attributed = NSAttributedString(
             string: text,
             attributes: [.font: NSFont.preferredFont(forTextStyle: .callout)])
+        // Both operands typed, or the literals leave the type checker choosing
+        // between CGFloat and Double.
+        let available: CGFloat = Self.cardWidth - Self.textInset
         let bounds = attributed.boundingRect(
-            with: NSSize(width: 560 - 32, height: .greatestFiniteMagnitude),
+            with: NSSize(width: available, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading])
         return ceil(bounds.height)
     }
@@ -268,7 +274,7 @@ struct AskBarView: View {
         // below has no ideal height to answer with, which is a well-worn route
         // to NaN in the layout maths. The window is sized by the controller, and
         // the card simply fills it from the top.
-        .frame(width: 560)
+        .frame(width: AskBarWindowController.cardWidth)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
