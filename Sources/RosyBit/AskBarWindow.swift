@@ -82,6 +82,30 @@ private final class AskBarPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+/// Lets the panel be dragged.
+///
+/// `isMovableByWindowBackground` alone does nothing here: the window's
+/// background is covered by an `NSHostingView`, which handles the mouse itself,
+/// so the drag never reaches the window. Calling `performDrag` from a view that
+/// does see the event is the way through.
+///
+/// Placed behind the text field row only. As a `.background` it sits under the
+/// field, so typing still wins where the field is and the surrounding strip
+/// becomes the grab handle — the answer area is left alone so text stays
+/// selectable.
+struct WindowDragHandle: NSViewRepresentable {
+
+    func makeNSView(context: Context) -> NSView { DragView() }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class DragView: NSView {
+        override func mouseDown(with event: NSEvent) {
+            window?.performDrag(with: event)
+        }
+    }
+}
+
 final class AskBarWindowController: NSWindowController, NSWindowDelegate {
 
     static let shared = AskBarWindowController()
@@ -93,6 +117,10 @@ final class AskBarWindowController: NSWindowController, NSWindowDelegate {
 
     /// Belt and braces against the recursion described above ever returning.
     private var isResizing = false
+
+    /// Whether the panel has been placed once. After that its position is the
+    /// user's to decide.
+    private var hasBeenPositioned = false
 
     static let cardWidth: CGFloat = 560
 
@@ -237,15 +265,23 @@ final class AskBarWindowController: NSWindowController, NSWindowDelegate {
     }
 
     /// Roughly where Spotlight puts itself: centred, a little above the middle.
+    ///
+    /// Only until it is moved. Somewhere the user dragged it to is a choice, and
+    /// re-centring on every open would quietly undo it — so this places the
+    /// panel the first time, and afterwards only when it would otherwise open
+    /// off-screen, which happens when a display is disconnected.
     private func positionNearTop() {
         guard let window,
               let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+
         let visible = screen.visibleFrame
+        if hasBeenPositioned, visible.intersects(window.frame) { return }
+
         let size = window.frame.size
-        let origin = NSPoint(
+        window.setFrameOrigin(NSPoint(
             x: visible.midX - size.width / 2,
-            y: visible.maxY - size.height - visible.height * 0.22)
-        window.setFrameOrigin(origin)
+            y: visible.maxY - size.height - visible.height * 0.22))
+        hasBeenPositioned = true
     }
 
     /// Behaves like Spotlight: clicking elsewhere puts it away.
@@ -293,7 +329,10 @@ struct AskBarView: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 17))
                 .focused($promptFocused)
-                .onSubmit { model.submit() }
+                .onSubmit {
+                    model.submit()
+                    collapsePromptSelection()
+                }
 
             if model.isStreaming {
                 Button {
@@ -308,6 +347,20 @@ struct AskBarView: View {
         }
         .padding(.horizontal, 16)
         .frame(height: 56)
+        .background(WindowDragHandle())
+    }
+
+    /// Returning in an `NSTextField` selects everything it contains. The text is
+    /// kept so the question can be edited and asked again, but leaving it
+    /// highlighted looks like the field is about to be overwritten. Collapsing
+    /// the field editor's selection to the end puts the caret where it would be
+    /// if you had simply stopped typing.
+    private func collapsePromptSelection() {
+        DispatchQueue.main.async {
+            guard let editor = NSApp.keyWindow?.fieldEditor(false, for: nil) as? NSTextView
+            else { return }
+            editor.setSelectedRange(NSRange(location: editor.string.utf16.count, length: 0))
+        }
     }
 
     private var output: some View {
