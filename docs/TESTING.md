@@ -6,16 +6,17 @@ HTTP 204/304, and HEAD. Everything below needs the real app, model, or target
 Mac and therefore remains a manual checklist. It is ordered so a failure early
 on explains failures later.
 
-## Current automated and V1 release evidence — 2026-08-30
+## Current automated and V1.1 release evidence — 2026-08-31
 
-- `swift test`: **29 tests passed, 0 failures**.
+- `swift test`: **39 tests passed, 0 failures**.
 - Universal release build: **x86_64 + arm64**.
 - Strict ad-hoc signature verification: **passed**.
+- Core Audio integration check read a valid 0–100 output volume on the M4.
 - App and endpoint exercised successfully on OCLP Sequoia.
 - Native Ventura failure reproduced, traced to the proxy implementation, fixed,
   and retested successfully with Rosy Bit listening on loopback.
 - Ask bar manually confirmed for streaming output, Markdown, bounded scrolling,
-  question selection, temporal context, and the final compact BRT timestamp.
+  question selection, temporal context, and the final compact GMT timestamp.
 - Installed-model sizes manually confirmed in the Model submenu.
 
 This is release evidence, not permission to delete the checklist: the unchecked
@@ -183,6 +184,19 @@ Then restore: `mv ~/Library/Application\ Support/RosyBit/stash/*.gguf ~/Library/
 - [ ] With Bonsai 4B selected, no tools are sent and the Ask bar behaves as before
 - [ ] Cancelling during either inference pass releases Rosy’s cores
 - [ ] Insights records both the tool request and the grounded follow-up
+
+Explicit definition grammar now executes the lookup locally and sends only the
+grounded presentation request, so Insights shows one request for that fast
+path. Less explicit phrasing that the model routes itself still produces the
+two-request trace above.
+
+### Read-only volume tool — Bonsai 1.7B Q1_0 only
+
+- [ ] “What’s the current volume?” reports the same percentage as macOS
+- [ ] “How loud is my Mac right now?” calls `volume_get` rather than guessing
+- [ ] The request and grounded answer appear in Insights
+- [ ] An output device without software volume control fails plainly
+- [ ] No `volume_set`, mute, shell, or state-changing capability is exposed
 
 ### Chat window
 

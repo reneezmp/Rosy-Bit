@@ -7,7 +7,7 @@
 #
 # llama-server caches the longest common prefix per slot, which is why Rosy's
 # first request costs about 18s and every later one about 4s. The prefix is the
-# system prompt plus, once tools are enabled, the 152-token tool block. Nothing
+# system prompt plus, once tools are enabled, the stable tool block. Nothing
 # warms it until the user's first question pays for it.
 #
 # A request with max_tokens=0 prefills that prefix and generates nothing, so the
@@ -25,17 +25,39 @@ import time
 import urllib.request
 import uuid
 
-TOOL = {
+DICTIONARY = {
     "type": "function",
     "function": {
         "name": "dictionary_lookup",
-        "description": "Look up the definition of a single English word in the "
-                       "macOS dictionary.",
+        "description": "Look up a word or short term in the dictionaries enabled on "
+                       "this Mac. Use this when the user asks what a word means, for "
+                       "a definition, or about a word's origin. The returned entry is "
+                       "authoritative; do not invent senses or etymologies beyond it.",
         "parameters": {
             "type": "object",
-            "properties": {"term": {"type": "string",
-                                    "description": "The single word to look up."}},
+            "properties": {
+                "term": {
+                    "type": "string",
+                    "description": "The exact word or short term to look up.",
+                },
+            },
             "required": ["term"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+VOLUME_GET = {
+    "type": "function",
+    "function": {
+        "name": "volume_get",
+        "description": "Read the Mac's current system output volume as a percentage. "
+                       "Use this when the user asks how loud the Mac is or what its "
+                       "current volume is.",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
         },
     },
 }
@@ -64,7 +86,7 @@ def main():
     parser.add_argument("--model", default=None)
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument("--no-tools", action="store_true",
-                        help="Measure the prefix without the 152-token tool block.")
+                        help="Measure the prefix without Rosy Bit's tool block.")
     options = parser.parse_args()
 
     base = f"http://{options.host}:{options.port}"
@@ -76,7 +98,7 @@ def main():
         except Exception as error:
             sys.exit(f"Could not read {base}/v1/models — is Rosy Bit running? ({error})")
 
-    tools = [] if options.no_tools else [TOOL]
+    tools = [] if options.no_tools else [DICTIONARY, VOLUME_GET]
     extra = {} if not tools else {"tools": tools}
     url = f"{base}/v1/chat/completions"
 

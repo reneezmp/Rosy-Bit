@@ -81,6 +81,20 @@ struct ChatClient {
         }
     }
 
+    private struct ExecutedTool {
+        let id: String
+        let name: String
+        let rawArguments: String
+        let observation: String
+        let displayedContent: String?
+    }
+
+    /// The exact block shared by warming, automatic routing, and grounded
+    /// follow-ups. Prefix reuse depends on this remaining byte-for-byte stable.
+    private static var toolSchemas: [[String: Any]] {
+        DictionaryTool.schema + VolumeTool.schema
+    }
+
     /// Streams a completion, calling `onDelta` on the main thread for each
     /// fragment as it arrives.
     ///
@@ -116,16 +130,22 @@ struct ChatClient {
                 // Generation here is measured in minutes, not seconds.
                 request.timeoutInterval = 900
 
+                let toolsEnabled = DictionaryTool.isAvailable(
+                    for: ModelStore.shared.selectedModel?.lastPathComponent)
+                let routedDictionaryTerm = toolsEnabled
+                    ? messages.last(where: { $0.role == "user" }).flatMap {
+                        DictionaryTool.explicitLookupTerm(in: $0.content)
+                    }
+                    : nil
+
                 var payload: [String: Any] = [
                     "model": "rosybit",
                     "stream": true,
                     "stream_options": ["include_usage": true],
                     "messages": messages.map { ["role": $0.role, "content": $0.content] },
                 ]
-                let toolsEnabled = DictionaryTool.isAvailable(
-                    for: ModelStore.shared.selectedModel?.lastPathComponent)
                 if toolsEnabled {
-                    payload["tools"] = DictionaryTool.schema
+                    payload["tools"] = toolSchemas
                     payload["tool_choice"] = "auto"
                 }
                 // Off by default: `id_slot` is not honoured on this endpoint.
@@ -135,22 +155,40 @@ struct ChatClient {
                 if slot >= 0 {
                     payload["id_slot"] = slot
                 }
-                let first = try await stream(payload: payload, request: request, onDelta: onDelta)
+                var streams: [StreamResult] = []
+                var executed: ExecutedTool?
 
-                var streams = [first]
-                if !first.toolNames.isEmpty {
-                    guard toolsEnabled else { throw DictionaryTool.ToolError.unavailableForModel }
-                    guard first.toolNames.count == 1, let index = first.toolNames.keys.first else {
-                        throw ChatError.multipleToolCalls
+                if let routedDictionaryTerm {
+                    // An explicit definition request needs no probabilistic
+                    // routing pass. Execute the same allowlisted tool locally,
+                    // then give the model only the grounded presentation pass.
+                    let call = DictionaryTool.routedCall(term: routedDictionaryTerm)
+                    executed = try executeTool(
+                        id: call.id,
+                        name: DictionaryTool.name,
+                        arguments: call.rawArguments)
+                } else {
+                    let first = try await stream(
+                        payload: payload, request: request, onDelta: onDelta)
+                    streams.append(first)
+                    if !first.toolNames.isEmpty {
+                        guard toolsEnabled else {
+                            throw DictionaryTool.ToolError.unavailableForModel
+                        }
+                        guard first.toolNames.count == 1,
+                              let index = first.toolNames.keys.first else {
+                            throw ChatError.multipleToolCalls
+                        }
+                        executed = try executeTool(
+                            id: first.toolIDs[index],
+                            name: first.toolNames[index],
+                            arguments: first.toolArguments[index] ?? "")
                     }
-                    let call = try DictionaryTool.parse(
-                        id: first.toolIDs[index],
-                        name: first.toolNames[index],
-                        arguments: first.toolArguments[index] ?? "")
-                    let definition = DictionaryTool.lookup(call.term)
+                }
 
-                    await MainActor.run {
-                        onDelta(DictionaryTool.displayedEntry(term: call.term, definition: definition))
+                if let executed {
+                    if let displayedContent = executed.displayedContent {
+                        await MainActor.run { onDelta(displayedContent) }
                     }
 
                     var followUpMessages: [[String: Any]] = messages.map {
@@ -160,19 +198,18 @@ struct ChatClient {
                         "role": "assistant",
                         "content": NSNull(),
                         "tool_calls": [[
-                            "id": call.id,
+                            "id": executed.id,
                             "type": "function",
                             "function": [
-                                "name": DictionaryTool.name,
-                                "arguments": call.rawArguments
+                                "name": executed.name,
+                                "arguments": executed.rawArguments
                             ]
                         ]]
                     ])
                     followUpMessages.append([
                         "role": "tool",
-                        "tool_call_id": call.id,
-                        "content": DictionaryTool.observation(
-                            term: call.term, definition: definition)
+                        "tool_call_id": executed.id,
+                        "content": executed.observation
                     ])
 
                     let followUp: [String: Any] = [
@@ -180,7 +217,7 @@ struct ChatClient {
                         "stream": true,
                         "stream_options": ["include_usage": true],
                         "messages": followUpMessages,
-                        "tools": DictionaryTool.schema,
+                        "tools": toolSchemas,
                         "tool_choice": "none",
                     ]
                     let final = try await stream(
@@ -201,6 +238,38 @@ struct ChatClient {
                 if Task.isCancelled { return }
                 await MainActor.run { onCompletion(.failure(error)) }
             }
+        }
+    }
+
+    private static func executeTool(
+        id: String?,
+        name: String?,
+        arguments: String
+    ) throws -> ExecutedTool {
+        switch name {
+        case DictionaryTool.name:
+            let call = try DictionaryTool.parse(
+                id: id, name: name, arguments: arguments)
+            let definition = DictionaryTool.lookup(call.term)
+            return ExecutedTool(
+                id: call.id,
+                name: DictionaryTool.name,
+                rawArguments: call.rawArguments,
+                observation: DictionaryTool.observation(
+                    term: call.term, definition: definition),
+                displayedContent: DictionaryTool.displayedEntry(
+                    term: call.term, definition: definition))
+        case VolumeTool.name:
+            let call = try VolumeTool.parse(id: id, arguments: arguments)
+            let percentage = try VolumeTool.currentOutputPercentage()
+            return ExecutedTool(
+                id: call.id,
+                name: VolumeTool.name,
+                rawArguments: call.rawArguments,
+                observation: VolumeTool.observation(percentage: percentage),
+                displayedContent: nil)
+        default:
+            throw DictionaryTool.ToolError.unsupportedCall
         }
     }
 
@@ -342,7 +411,7 @@ struct ChatClient {
             "messages": messages,
         ]
         if DictionaryTool.isAvailable(for: ModelStore.shared.selectedModel?.lastPathComponent) {
-            payload["tools"] = DictionaryTool.schema
+            payload["tools"] = toolSchemas
             payload["tool_choice"] = "auto"
         }
         guard let body = try? JSONSerialization.data(withJSONObject: payload) else { return }

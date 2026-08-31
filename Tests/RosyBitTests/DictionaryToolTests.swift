@@ -3,6 +3,51 @@ import XCTest
 
 final class DictionaryToolTests: XCTestCase {
 
+    func testExplicitDefinitionRequestsRouteWithoutAskingTheModel() {
+        let cases = [
+            ("What does susurrus mean?", "susurrus"),
+            ("What's the meaning of the word 'lurking'?", "lurking"),
+            ("What is the definition of “Renée”?", "Renée"),
+            ("Define the word verisimilitude please.", "verisimilitude"),
+            ("Can you tell me the meaning of the term 'liminal'?", "liminal"),
+            ("I need a definition for 'recalcitrant'.", "recalcitrant"),
+            ("[Timestamp: 2026-08-31 11:00 GMT-3]\nmeaning of defenestration?", "defenestration"),
+        ]
+
+        for (prompt, expected) in cases {
+            XCTAssertEqual(
+                DictionaryTool.explicitLookupTerm(in: prompt),
+                expected,
+                prompt)
+        }
+    }
+
+    func testAmbiguousUsesOfMeaningStayWithTheModel() {
+        let prompts = [
+            "What do you mean?",
+            "What does it mean when my cat chirps?",
+            "That was a mean thing to say.",
+            "What is the meaning of life?",
+            "Explain why this sentence is meaningful.",
+            "What's the origin of susurrus?",
+            "Summarise this note:\nDefine cat",
+        ]
+
+        for prompt in prompts {
+            XCTAssertNil(DictionaryTool.explicitLookupTerm(in: prompt), prompt)
+        }
+    }
+
+    func testRoutedCallProducesStrictlyParseableArguments() throws {
+        let routed = DictionaryTool.routedCall(term: #"say "hello""#)
+        let parsed = try DictionaryTool.parse(
+            id: routed.id,
+            name: DictionaryTool.name,
+            arguments: routed.rawArguments)
+
+        XCTAssertEqual(parsed.term, #"say "hello""#)
+    }
+
     func testToolIsGatedToMeasuredBonsaiBuild() {
         XCTAssertTrue(DictionaryTool.isAvailable(for: "Bonsai-1.7B-Q1_0.gguf"))
         XCTAssertTrue(DictionaryTool.isAvailable(for: "bonsai_1.7b_q1_0.gguf"))

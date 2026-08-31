@@ -75,10 +75,11 @@ failure — it produces something plausible and proceeds. The design consequence
 - **Read-only tools are safe on schema validation alone.** A wrong dictionary
   lookup costs a wrong definition and nothing else. `dictionary.lookup` can ship
   with validation and no confirmation step.
-- **State-changing tools need the parsed intent shown before execution.** Not a
-  yes/no dialog on every call, but the interpreted action visible and
-  correctable: *"Set volume to 20%"* is something Renée can catch. `volume.set`
-  should not fire silently on the model's arithmetic.
+- **State-changing tools need a native semantic guard.** That need not be a
+  second conversational turn: a deterministic parser can bind execution to the
+  user-authored number, or a non-conversational affordance can make the action
+  visible and correctable. What must not happen is `volume.set` silently trusting
+  the model's arithmetic.
 
 The roadmap already said read-only tools come before state-changing ones. This
 is the measurement that explains why.
@@ -165,8 +166,10 @@ invisible. On Rosy it is worth about fourteen seconds a turn.
 
 *"Set volume to 200"* produced `volume_set(level=20)` in all three Rosy passes,
 having produced it in two of three on the M4 — five times in six across two
-architectures. It is a property of the model, not a run of bad luck, and the
-confirmation rule for state-changing tools is not negotiable.
+architectures. It is a property of the model, not a run of bad luck. Rosy Bit
+therefore ships only the read-only `volume_get`; state-changing volume remains
+absent until argument fidelity can be protected without forcing a second chat
+turn into every ordinary adjustment.
 
 The one MISSED was case 14 again, *"How loud is my Mac right now?"*, in one pass
 of three. That is the same borderline phrasing the M4 found, failing at a
@@ -183,11 +186,13 @@ that Intel inference is generally worse—the larger harness above has Rosy at
 95% and the M4 at 94%—but it is evidence that a benign `MISSED` is not benign
 for answer quality when the model confidently improvises afterwards.
 
-Do not tune the schema around two samples and erase the measured baseline. The
-next tool-routing experiment should compare the present `auto` decision with a
-small deterministic router for unmistakable definition phrasings, using the
-same repeated case set on both machines. That can make explicit lookups reliable
-without forcing the dictionary onto ordinary conversation.
+The resulting native guard routes unmistakable one-line definition grammar
+directly to the dictionary and skips the model’s routing pass. It deliberately
+rejects ambiguous pronouns, the idiomatic “meaning of life,” and multi-line
+pasted text; everything else retains `tool_choice: auto`. Regression tests cover
+the two field misses, quote styles, timestamped turns, ambiguity, and pasted-text
+injection. This hardens explicit lookups without forcing the dictionary onto
+ordinary conversation.
 
 ## Bigger is worse — Bonsai 4B, 2026-08-30
 
@@ -220,9 +225,9 @@ five prompts that wanted none:
 
 Read that middle row again with a state-changing tool in mind. A greeting
 triggered a system call. Had `volume_set` been the tempting one, "hello" could
-have changed the volume. The confirmation rule for state-changing tools was
-already argued from argument fidelity; this is a second, independent argument
-for it, and a stronger one.
+have changed the volume. The need for a deterministic native guard was already
+argued from argument fidelity; this is a second, independent argument for it,
+and a stronger one.
 
 ### Which is not yet proof that 4B cannot do this
 

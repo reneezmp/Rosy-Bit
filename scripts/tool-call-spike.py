@@ -234,7 +234,7 @@ def main():
 
     # Anything that breaks the loop's mechanics is a hard failure. WRONG-ARG is
     # reported loudly but does not fail the run: it is a design input, and the
-    # answer to it is confirmation, not a better prompt.
+    # answer to it is a native semantic guard, not a better prompt.
     fatal = sum(verdicts[key] for key in ("MALFORMED", "HALLUCINATED-TOOL", "ERROR"))
     return 1 if fatal else 0
 

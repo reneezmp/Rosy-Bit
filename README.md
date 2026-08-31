@@ -17,7 +17,7 @@ companion waiting in the menu bar.
 
 **Everyone deserves a chance. Machines included.** 🌱
 
-## What V1 does
+## What Rosy Bit 1.1 does
 
 Rosy Bit is a native macOS menu bar app that supervises `llama-server` and
 provides an OpenAI-compatible endpoint:
@@ -26,15 +26,20 @@ provides an OpenAI-compatible endpoint:
 http://127.0.0.1:1337/v1
 ```
 
-V1 includes:
+Rosy Bit includes:
 
 - a universal Intel + Apple Silicon app targeting macOS Ventura 13 and later;
 - first-run downloads for Bonsai 1.7B, plus 4B and 8B choices in the model menu;
 - actual GGUF file sizes beside installed model names;
 - a configurable global Ask bar, initially **⌥Space**;
+- a memory-only multi-session chat window with bounded prompting, message
+  actions, generation metrics, and Ask-bar handoff;
 - streamed answers with native Markdown, bounded height, and scrolling;
 - compact local context on every user turn, such as
-  `[Timestamp: 2026-08-30 13:50 BRT]`;
+  `[Timestamp: 2026-08-30 13:50 GMT-3]`;
+- deterministic local Dictionary Services lookups for explicit definition
+  requests, with the source entry visibly separated from Rosy’s gloss;
+- a read-only Core Audio tool for reporting the current system output volume;
 - an in-memory Insights window for prompts, responses, parameters, and timing;
 - settings for ports, context, threads, slots, KV cache, sampling, CORS, the
   system prompt, and the Ask shortcut;
@@ -72,8 +77,10 @@ that let their users choose where inference happens.
 - Insights retains at most a bounded in-memory history and disappears when the
   app quits; it is never written to disk.
 - Captured credentials are redacted and oversized bodies are truncated.
-- Rosy Bit currently gives the model no shell, files, macOS controls, or other
-  tools. The only exposed capability is text generation.
+- Rosy Bit gives the model no shell or file access. On the measured Bonsai
+  1.7B Q1_0 build, its only native capabilities are a bounded Dictionary
+  Services lookup and a read-only Core Audio volume query. Both are strictly
+  allowlisted and validated; neither can mutate the Mac.
 
 If browser access is not needed, CORS can be restricted in Settings. Loopback
 keeps other machines out; CORS controls pages running in your own browser.

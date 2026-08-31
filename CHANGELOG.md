@@ -5,6 +5,8 @@ records user-visible changes; the detailed engineering history remains in Git.
 
 ## Unreleased
 
+## [1.1.0] — 2026-08-31
+
 ### Added
 
 - The cached prefix is now prefilled when the server becomes ready, instead of
@@ -18,6 +20,13 @@ records user-visible changes; the detailed engineering history remains in Git.
   block before Rosy’s short gloss; it is never replaced by model prose. The tool
   is local, read-only, limited to one call per turn, and enabled only for the
   measured Bonsai 1.7B Q1_0 build.
+- Explicit definition phrasings such as “define X” and “what does X mean?” now
+  route directly to Dictionary Services instead of asking the model whether it
+  feels like calling the tool. Ambiguous and multi-line requests remain with
+  normal model routing, avoiding both missed lookups and pasted-text triggers.
+- Rosy can now report the Mac’s current output volume through a validated,
+  read-only `volume_get` tool backed by Core Audio. It has no shell path and no
+  ability to change volume or mute the device.
 - Oversized dictionary articles are shortened locally before they reach the
   model, with the reduction disclosed beside the source excerpt. This keeps a
   bilingual mega-entry from consuming Rosy’s context window and both CPU cores.
@@ -114,3 +123,4 @@ that inspired the project.
 - Added third-party license notices to the repository and built app bundle.
 
 [1.0.0]: https://github.com/reneezmp/Rosy-Bit/releases/tag/v1.0.0
+[1.1.0]: https://github.com/reneezmp/Rosy-Bit/releases/tag/v1.1.0

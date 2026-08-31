@@ -22,6 +22,95 @@ enum DictionaryTool {
         let rawArguments: String
     }
 
+    /// Routes only requests whose grammar makes a dictionary lookup
+    /// unambiguous. Everything else stays with the model and `tool_choice:
+    /// auto`, so a conversational use of "mean" cannot accidentally become a
+    /// lookup. This is deliberately product-side routing: a tiny model should
+    /// not spend a generation deciding whether "define X" asks for a
+    /// definition.
+    static func explicitLookupTerm(in message: String) -> String? {
+        var lines = message.components(separatedBy: .newlines)
+        if lines.first?.hasPrefix("[Timestamp:") == true {
+            lines.removeFirst()
+        }
+        // Do not interpret a final line inside pasted text as an instruction.
+        // The local router handles one plainly authored request, not documents.
+        guard lines.count == 1 else { return nil }
+        let prompt = lines[0].trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // This fixed English idiom is a philosophical question, not a request
+        // for Dictionary Services. `Define life` remains routable.
+        let foldedPrompt = prompt
+            .trimmingCharacters(in: CharacterSet(charactersIn: " ?.!"))
+            .lowercased()
+        if foldedPrompt == "what is the meaning of life"
+            || foldedPrompt == "what's the meaning of life" {
+            return nil
+        }
+
+        let patterns = [
+            #"^(?:please\s+)?define\s+(?:the\s+(?:word|term)\s+)?(.+?)(?:\s+please)?[?.!]*$"#,
+            #"^(?:please\s+)?what(?:'s|\s+is)\s+the\s+(?:meaning|definition)\s+of\s+(?:the\s+(?:word|term)\s+)?(.+?)(?:\s+please)?[?.!]*$"#,
+            #"^(?:please\s+)?what\s+does\s+(?:the\s+(?:word|term)\s+)?(.+?)\s+mean(?:\s+in\s+english)?(?:\s+please)?[?.!]*$"#,
+            #"^(?:please\s+)?(?:look\s+up)\s+(.+?)(?:\s+in\s+the\s+dictionary)?(?:\s+please)?[?.!]*$"#,
+            #"^(?:please\s+)?(?:meaning|definition)\s+of\s+(?:the\s+(?:word|term)\s+)?(.+?)(?:\s+please)?[?.!]*$"#,
+            #"^(?:please\s+)?(?:can|could|would)\s+you\s+(?:please\s+)?tell\s+me\s+the\s+(?:meaning|definition)\s+of\s+(?:the\s+(?:word|term)\s+)?(.+?)(?:\s+please)?[?.!]*$"#,
+            #"^(?:please\s+)?i\s+(?:need|want)\s+(?:a|the)\s+definition\s+(?:for|of)\s+(?:the\s+(?:word|term)\s+)?(.+?)(?:\s+please)?[?.!]*$"#,
+        ]
+
+        for pattern in patterns {
+            guard let expression = try? NSRegularExpression(
+                pattern: pattern,
+                options: [.caseInsensitive]) else { continue }
+            let range = NSRange(prompt.startIndex..<prompt.endIndex, in: prompt)
+            guard let match = expression.firstMatch(in: prompt, range: range),
+                  match.numberOfRanges == 2,
+                  let capturedRange = Range(match.range(at: 1), in: prompt),
+                  let term = normalizedExplicitTerm(String(prompt[capturedRange])) else {
+                continue
+            }
+            return term
+        }
+        return nil
+    }
+
+    static func routedCall(term: String) -> Call {
+        let data = try? JSONSerialization.data(withJSONObject: ["term": term])
+        let arguments = data.flatMap { String(data: $0, encoding: .utf8) }
+            ?? #"{"term":""}"#
+        return Call(id: "dictionary-route", term: term, rawArguments: arguments)
+    }
+
+    private static func normalizedExplicitTerm(_ raw: String) -> String? {
+        var term = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        term = term.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        term = term.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let quotePairs: [(Character, Character)] = [
+            ("\"", "\""), ("'", "'"), ("“", "”"), ("‘", "’"), ("`", "`")
+        ]
+        for (opening, closing) in quotePairs where term.first == opening && term.last == closing {
+            term.removeFirst()
+            term.removeLast()
+            term = term.trimmingCharacters(in: .whitespacesAndNewlines)
+            break
+        }
+
+        guard !term.isEmpty, term.count <= 100,
+              term.split(whereSeparator: { $0.isWhitespace }).count <= 6 else {
+            return nil
+        }
+        let rejected = ["it", "this", "that", "these", "those", "you", "i", "something"]
+        guard !rejected.contains(term.lowercased()) else { return nil }
+
+        var allowed = CharacterSet.letters
+        allowed.formUnion(.decimalDigits)
+        allowed.formUnion(.whitespaces)
+        allowed.formUnion(CharacterSet(charactersIn: "-'’"))
+        guard term.unicodeScalars.allSatisfy(allowed.contains) else { return nil }
+        return term
+    }
+
     enum ToolError: LocalizedError, Equatable {
         case unavailableForModel
         case unsupportedCall

@@ -24,7 +24,7 @@ The implementation history and release summary are in
 [`CHANGELOG.md`](../CHANGELOG.md). The checks that still need physical machines
 or real clients remain in [`TESTING.md`](TESTING.md).
 
-## V1.1 candidates
+## V1.1 — shipped
 
 ### Chat window — functional foundation implemented
 
@@ -74,20 +74,21 @@ with the server. Disk KV files are deliberately rejected: they are large,
 model-specific, write-heavy, and would persist conversation-derived state behind
 an interface that promises memory-only history.
 
-### Dictionary tool — implemented, awaiting real-machine verification
+### Dictionary tool — implemented and verified
 
 A read-only `dictionary.lookup(term)` tool can use macOS Dictionary Services and
 the dictionaries already enabled on the machine. It is the safest first tool:
 local, bounded, reversible, and useful for a small model.
 
-The first bounded loop is now implemented in the Ask bar. It accepts exactly
+The first bounded loop is implemented in the Ask bar and chat. It accepts exactly
 one allowlisted call, strictly validates a single `term`, retrieves through
 Dictionary Services, shows the source entry directly, and gives the model one
 final pass with tools disabled to add a faithful gloss. It is gated to Bonsai
-1.7B Q1_0; 4B and unmeasured models receive no tool schema at all. The remaining
-work is the real-machine checklist in [`TESTING.md`](TESTING.md), especially
-Ventura lookup behavior, cancellation during both passes, and the quality of the
-gloss beside several dictionaries' formatting.
+1.7B Q1_0; 4B and unmeasured models receive no tool schema at all. Explicit
+definition grammar is routed locally before inference, eliminating the
+field-observed misses for plain “define X” and “what does X mean?” requests and
+removing an unnecessary model pass. Ambiguous language, origins, and pasted
+multi-line text remain under normal automatic routing.
 
 Whether a 1-bit model could drive a tool loop at all was the open question, and
 it has been answered on both machines. Across 78 requests on each, Bonsai 1.7B
@@ -103,7 +104,7 @@ the tool layer may poll or speculate — no background work on the chance it tur
 out useful.
 
 Warming the cached prefix once is not that, and the distinction is worth being
-precise about. The system prompt and the 152-token tool block are needed by
+precise about. The system prompt and stable tool block are needed by
 *every* request, so prefilling them is certain work done early rather than
 speculative work done hopefully. A `max_tokens: 0` request prefills the prefix
 and generates nothing, after which the next question prefills only the user's
@@ -120,22 +121,31 @@ Two findings shape the build:
   soft spot was phrasing coverage, not format — and it fell either way depending
   on sampling rather than failing outright.
 
-### Small, native macOS controls
+### Read-only native volume — implemented
 
-Volume is feasible through Core Audio without screen automation. Rosy Bit
-should expose narrow operations such as `volume.get`, `volume.set(0...100)`,
-and `volume.mute` through a validated tool-call loop.
+`volume.get` reads the current system output volume through Core Audio without
+screen automation, shell execution, or any ability to mutate the Mac. It uses
+the same strict one-call allowlist as the dictionary and is gated to the
+measured Bonsai 1.7B Q1_0 build.
+
+`volume.set(0...100)` and `volume.mute` remain later work. The earlier proposal
+for a mandatory conversational confirmation would add a costly extra turn to a
+small local model. Before either ships, the interaction needs a design that
+preserves argument fidelity without making every ordinary adjustment a
+two-round conversation—for example a direct deterministic intent path or a
+non-conversational UI affordance.
 
 The model must never receive unrestricted shell access. Tool requests are
 structured, allowlisted, range-checked, executed by native code, and returned to
 the model as observations. Read-only tools come before state-changing ones.
 
-That ordering now has a measurement behind it. Asked to set the volume to 200,
+The read-only-first ordering has a measurement behind it. Asked to set the volume to 200,
 the model answered with a schema-valid, in-range, and simply wrong `level: 20`.
 When a request cannot be honoured it does not signal failure; it produces
-something plausible and proceeds. Validation cannot catch that, so every
-state-changing tool must show its parsed intent before it executes. A wrong
-lookup costs a wrong definition. A wrong `volume.set` costs trust.
+something plausible and proceeds. Validation cannot catch that. State-changing
+controls therefore remain absent until semantic fidelity and interaction cost
+are solved together. A wrong lookup costs a wrong definition. A wrong
+`volume.set` costs trust.
 
 ### Native 1-bit model laboratory
 
@@ -172,7 +182,7 @@ of Rosy Bit being legitimate software.
 ### Additional system tools
 
 Calendar, reminders, Shortcuts, files, or automation only after the tool layer
-has explicit confirmation rules, an audit trail, and per-capability switches.
+has an interaction appropriate to each risk, an audit trail, and per-capability switches.
 The project grows by consent, not by quietly accumulating authority.
 
 ## Permanent guardrails
