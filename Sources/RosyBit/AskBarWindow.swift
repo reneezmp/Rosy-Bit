@@ -11,6 +11,8 @@ final class AskBarModel: ObservableObject {
     @Published private(set) var isStreaming = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var focusRequest = 0
+    @Published private(set) var responseMessageID: UUID?
+    @Published private(set) var responseMetrics: ChatClient.GenerationMetrics?
 
     /// Whether the prefix is still being prefilled. Shown as a hint, never as a
     /// gate: the field stays typeable throughout, because typing happens here
@@ -45,6 +47,9 @@ final class AskBarModel: ObservableObject {
 
         answer = ""
         errorMessage = nil
+        responseMetrics = nil
+        let responseMessageID = UUID()
+        self.responseMessageID = responseMessageID
 
         // Say why nothing will happen, rather than letting a refused connection
         // read as the model declining to answer.
@@ -64,13 +69,16 @@ final class AskBarModel: ObservableObject {
 
         task = ChatClient.send(
             messages: messages,
+            messageID: responseMessageID,
             onDelta: { [weak self] delta in
                 self?.answer += delta
             },
             onCompletion: { [weak self] result in
                 guard let self else { return }
                 self.isStreaming = false
-                if case .failure(let error) = result {
+                if case .success(let metrics) = result {
+                    self.responseMetrics = metrics
+                } else if case .failure(let error) = result {
                     self.errorMessage = error.localizedDescription
                 }
             })
@@ -89,6 +97,8 @@ final class AskBarModel: ObservableObject {
         prompt = ""
         answer = ""
         errorMessage = nil
+        responseMessageID = nil
+        responseMetrics = nil
     }
 
     func copyAnswer() {
@@ -292,8 +302,10 @@ final class AskBarWindowController: NSWindowController, NSWindowDelegate {
         super.init(window: panel)
         panel.delegate = self
 
-        let controller = NSHostingController(
-            rootView: AskBarView(model: model, onDismiss: { [weak self] in self?.hide() }))
+        let controller = NSHostingController(rootView: AskBarView(
+            model: model,
+            onDismiss: { [weak self] in self?.hide() },
+            onContinue: { [weak self] in self?.continueInChat() }))
         // This controller alone owns the window height. If NSHostingController
         // also publishes its ideal size, a long Text can make AppKit grow the
         // borderless panel beyond our scroll viewport.
@@ -434,6 +446,17 @@ final class AskBarWindowController: NSWindowController, NSWindowDelegate {
         window?.orderOut(nil)
     }
 
+    private func continueInChat() {
+        let question = model.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !question.isEmpty, !model.answer.isEmpty, !model.isStreaming else { return }
+        ChatWindowController.shared.continueFromAskBar(
+            question: question,
+            answer: model.answer,
+            assistantID: model.responseMessageID,
+            metrics: model.responseMetrics)
+        hide()
+    }
+
     /// Roughly where Spotlight puts itself: centred, a little above the middle.
     ///
     /// Only until it is moved. Somewhere the user dragged it to is a choice, and
@@ -466,6 +489,7 @@ struct AskBarView: View {
 
     @ObservedObject var model: AskBarModel
     let onDismiss: () -> Void
+    let onContinue: () -> Void
 
     @FocusState private var promptFocused: Bool
     @State private var didCopy = false
@@ -570,6 +594,15 @@ struct AskBarView: View {
 
     private var answerActions: some View {
         HStack {
+            Button(action: onContinue) {
+                Label("Continue in Chat", systemImage: "bubble.left.and.bubble.right")
+                    .font(.caption)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .disabled(model.isStreaming)
+            .help("Move this turn into a conversation")
+
             Spacer()
             Button {
                 model.copyAnswer()
@@ -591,7 +624,7 @@ struct AskBarView: View {
     }
 }
 
-private struct MarkdownAnswer: View {
+struct MarkdownAnswer: View {
     let source: String
 
     private var blocks: [AskBarMarkdown.Block] { AskBarMarkdown.blocks(source) }
@@ -626,13 +659,12 @@ private struct MarkdownAnswer: View {
             listRow(marker: "\(ordinal).", block: block)
 
         case .codeBlock:
-            ScrollView(.horizontal) {
-                Text(block.content)
-                    .font(.system(.callout, design: .monospaced))
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .padding(10)
-            }
+            Text(block.content)
+                .font(.system(.callout, design: .monospaced))
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
             .background(Color.primary.opacity(0.06))
             .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
 

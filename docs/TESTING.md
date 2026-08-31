@@ -6,9 +6,9 @@ HTTP 204/304, and HEAD. Everything below needs the real app, model, or target
 Mac and therefore remains a manual checklist. It is ordered so a failure early
 on explains failures later.
 
-## V1 evidence — 2026-08-30
+## Current automated and V1 release evidence — 2026-08-30
 
-- `swift test`: **13 tests passed, 0 failures**.
+- `swift test`: **29 tests passed, 0 failures**.
 - Universal release build: **x86_64 + arm64**.
 - Strict ad-hoc signature verification: **passed**.
 - App and endpoint exercised successfully on OCLP Sequoia.
@@ -79,6 +79,9 @@ endpoint — which also tells us the fault is in the proxy rather than elsewhere
 - [ ] Set both ports the same → Apply disables, warning appears
 - [ ] Set a port to 80 → same
 - [ ] Change threads → Apply & Restart → new value in the log's first lines
+- [ ] Performance shows a 256 MB conversation cache and 256-token checkpoint
+- [ ] Changing either conversation-cache control restarts a running server and
+      the matching `--cache-ram` / `--checkpoint-min-step` values reach the log
 - [ ] Restore Defaults resets the fields and restarts a running server when its
       launch arguments changed
 - [ ] Stop the server, change threads, and Apply → the server remains stopped
@@ -161,9 +164,50 @@ Then restore: `mv ~/Library/Application\ Support/RosyBit/stash/*.gguf ~/Library/
 - [ ] ⌥Space again reopens
 - [ ] The request appears in Insights
 - [ ] Its user message begins with a compact, labelled local timestamp such as
-      `[Timestamp: 2026-08-30 13:50 BRT]`; the system prompt remains unchanged
+      `[Timestamp: 2026-08-30 13:50 GMT-3]`; the system prompt remains unchanged
 - [ ] `defaults write com.rosybit.app askBarEnabled -bool false` removes both
       the shortcut and the menu item
+
+### Dictionary tool — Bonsai 1.7B Q1_0 only
+
+- [ ] “What does *susurrus* mean?” retrieves the enabled macOS Dictionary entry
+- [ ] “What's the meaning of the word *lurking*?” retrieves rather than answering
+      from memory; repeat it because this phrasing has missed in real use
+- [ ] A lookup miss never claims an “authoritative dictionary” result that was
+      not actually returned
+- [ ] The source entry appears under **Dictionary**, before **Rosy’s gloss**
+- [ ] Long dictionary entries wrap within the code block without horizontal scroll
+- [ ] The gloss does not add an origin or sense absent from the source entry
+- [ ] A missing term is reported plainly rather than receiving an invented entry
+- [ ] A normal prompt streams directly and does not trigger a dictionary call
+- [ ] With Bonsai 4B selected, no tools are sent and the Ask bar behaves as before
+- [ ] Cancelling during either inference pass releases Rosy’s cores
+- [ ] Insights records both the tool request and the grounded follow-up
+
+### Chat window
+
+- [ ] **Chat…** opens a resizable window from the menu bar
+- [ ] The window initially opens at 900×650 rather than collapsing to its minimum
+- [ ] The conversation sidebar collapses and reopens without losing selection
+- [ ] Collapsed mode exposes compact sidebar and new-chat controls beside the
+      traffic lights without overlapping them
+- [ ] **New Chat** and the collapse control share one top row when expanded
+- [ ] Collapsing lets the transcript and composer reclaim the former sidebar width
+- [ ] Enlarging the window lets the transcript grow beyond its opening width
+      without stretching assistant prose into an unreadable full-window line
+- [ ] New sessions appear at the top and can be selected or deleted
+- [ ] The sidebar plainly says that sessions clear when Rosy Bit quits
+- [ ] A second turn includes the first user and assistant messages in its payload
+- [ ] After enough long turns, the UI keeps the session while the request drops
+      the oldest complete turns and never begins with an orphaned assistant reply
+- [ ] Streaming Markdown, Stop, and automatic scrolling work during long replies
+- [ ] User turns render as right-aligned capsules; assistant prose remains open
+      on the canvas and its Copy control copies only that answer
+- [ ] Multi-line text inside a user capsule is itself aligned to the right
+- [ ] **Continue in Chat** appears beside Copy only after an Ask bar answer exists
+- [ ] Continuing opens a new selected session with the exact question and answer
+- [ ] Continuing does not generate another request until a new message is sent
+- [ ] A dictionary turn transferred from Ask retains its entry and Rosy’s gloss
 
 If another app owns ⌥Space, choose a different combination in Settings. Rosy Bit
 shows the registration failure there rather than silently ignoring it.

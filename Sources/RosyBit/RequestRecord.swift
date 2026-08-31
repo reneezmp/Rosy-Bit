@@ -12,6 +12,9 @@ struct RequestRecord: Identifiable {
 
     let id = UUID()
     let startedAt: Date
+    /// Stable UI turn that caused this request. Rosy Bit adds it as a private
+    /// header; ordinary OpenAI-compatible clients simply leave it nil.
+    var chatMessageID: UUID?
 
     var method: String
     var path: String

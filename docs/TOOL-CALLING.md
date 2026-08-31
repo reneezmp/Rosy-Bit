@@ -173,6 +173,22 @@ of three. That is the same borderline phrasing the M4 found, failing at a
 similar rate, which is what a decision-boundary case looks like rather than a
 gap in the description.
 
+### Sequoia field observation — 2026-08-31
+
+Real chat use on Rosy produced two conspicuous dictionary misses: an explicit
+meaning question for *lurking* was answered from memory, and one for *renée*
+invented an “authoritative” dictionary claim without making a call. A later
+follow-up in the *lurking* conversation did call the tool. This is not evidence
+that Intel inference is generally worse—the larger harness above has Rosy at
+95% and the M4 at 94%—but it is evidence that a benign `MISSED` is not benign
+for answer quality when the model confidently improvises afterwards.
+
+Do not tune the schema around two samples and erase the measured baseline. The
+next tool-routing experiment should compare the present `auto` decision with a
+small deterministic router for unmistakable definition phrasings, using the
+same repeated case set on both machines. That can make explicit lookups reliable
+without forcing the dictionary onto ordinary conversation.
+
 ## Bigger is worse — Bonsai 4B, 2026-08-30
 
 An earlier version of this document said 4B and 8B were "presumed no worse,

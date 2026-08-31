@@ -4,6 +4,22 @@ import XCTest
 
 final class HTTPTrafficParserTests: XCTestCase {
 
+    func testRosyChatMessageHeaderCorrelatesRequestWithVisibleTurn() {
+        let parser = HTTPTrafficParser()
+        var records: [RequestRecord] = []
+        parser.onRecord = { records.append($0) }
+        let messageID = UUID()
+
+        parser.consumeRequest(data(
+            "POST /v1/chat/completions HTTP/1.1\r\n"
+            + "Host: localhost\r\n"
+            + "X-RosyBit-Message-ID: \(messageID.uuidString)\r\n"
+            + "Content-Length: 0\r\n\r\n"))
+        parser.consumeResponse(data("HTTP/1.1 204 No Content\r\n\r\n"))
+
+        XCTAssertEqual(records.first?.chatMessageID, messageID)
+    }
+
     func testNoContentAndNotModifiedCompleteTheirOwnRequests() {
         let parser = HTTPTrafficParser()
         var records: [RequestRecord] = []

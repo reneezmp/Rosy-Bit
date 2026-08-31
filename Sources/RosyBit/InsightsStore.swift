@@ -15,6 +15,7 @@ final class InsightsStore: ObservableObject {
 
     @Published private(set) var records: [RequestRecord] = []
     @Published private(set) var totalSeen = 0
+    @Published var selectedRecordID: RequestRecord.ID?
 
     private init() {}
 
@@ -31,5 +32,18 @@ final class InsightsStore: ObservableObject {
     func clear() {
         records.removeAll()
         totalSeen = 0
+        selectedRecordID = nil
+    }
+
+    /// Select the newest request belonging to a chat response. Dictionary
+    /// answers make two requests; newest-first therefore lands on the grounded
+    /// prose request, while ordinary answers have exactly one match.
+    @discardableResult
+    func focus(onChatMessageID messageID: UUID) -> Bool {
+        guard let record = records.first(where: { $0.chatMessageID == messageID }) else {
+            return false
+        }
+        selectedRecordID = record.id
+        return true
     }
 }

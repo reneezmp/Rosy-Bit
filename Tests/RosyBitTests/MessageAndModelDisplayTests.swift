@@ -20,7 +20,9 @@ final class MessageAndModelDisplayTests: XCTestCase {
         let message = ChatClient.Message.user("What time is it?", at: date, timeZone: local)
 
         XCTAssertEqual(message.role, "user")
-        XCTAssertEqual(message.content, "[Timestamp: 2026-08-30 13:45 BRT]\nWhat time is it?")
+        XCTAssertEqual(
+            message.content,
+            "[Timestamp: 2026-08-30 13:45 GMT-3]\nWhat time is it?")
         XCTAssertEqual(ChatClient.Message.system("Stable").content, "Stable")
         XCTAssertEqual(ChatClient.Message.assistant("Answer").content, "Answer")
     }

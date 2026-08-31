@@ -27,17 +27,21 @@ final class InsightsWindowController: NSWindowController, NSWindowDelegate {
         fatalError("init(coder:) is not used")
     }
 
-    func show() {
+    @discardableResult
+    func show(recordFor messageID: UUID? = nil) -> Bool {
+        if let messageID, !InsightsStore.shared.focus(onChatMessageID: messageID) {
+            return false
+        }
         NSApp.activate(ignoringOtherApps: true)
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
+        return true
     }
 }
 
 struct InsightsView: View {
 
     @ObservedObject private var store = InsightsStore.shared
-    @State private var selection: RequestRecord.ID?
 
     var body: some View {
         HSplitView {
@@ -50,7 +54,7 @@ struct InsightsView: View {
     }
 
     private var selected: RequestRecord? {
-        store.records.first { $0.id == selection }
+        store.records.first { $0.id == store.selectedRecordID }
     }
 
     // MARK: - List
@@ -74,7 +78,7 @@ struct InsightsView: View {
             if store.records.isEmpty {
                 emptyState
             } else {
-                List(store.records, selection: $selection) { record in
+                List(store.records, selection: $store.selectedRecordID) { record in
                     row(for: record).tag(record.id)
                 }
                 .listStyle(.inset)

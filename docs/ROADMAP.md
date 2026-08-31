@@ -26,11 +26,34 @@ or real clients remain in [`TESTING.md`](TESTING.md).
 
 ## V1.1 candidates
 
-### Chat window
+### Chat window — functional foundation implemented
 
-`ChatClient` is already proven by the Ask bar. A full window would add a
-collapsible conversation sidebar and proper message bubbles, with the compact
-time visible in the UI and the complete timestamp retained in the payload.
+`ChatClient` was already proven by the Ask bar. The chat window adds a
+collapsible conversation sidebar and proper message bubbles; timestamps stay
+out of the visible UI while the complete value is retained in the payload.
+
+The first functional version now provides memory-only sessions, a collapsible
+sidebar, multi-turn streaming, Markdown messages, cancellation, and new/delete
+session controls. A completed Ask bar turn can be moved into a new conversation
+without regenerating it. User timestamps remain in the model payload and out of
+the visible bubble. The whole session remains visible, while only the newest
+turns that fit a conservative share of the configured context are sent back to
+the model; old prose must not make every new answer progressively slower on
+Rosy.
+
+The visual pass takes Ollama's useful spatial lessons without copying its
+identity: an integrated date-grouped sidebar, open assistant prose, compact
+right-aligned user capsules, tiny top controls, and a floating composer. Rosy's
+sakura accent and denser 12-inch proportions keep the result hers. Persistence
+remains a separate consent decision rather than being smuggled into the design.
+
+The message-action pass similarly borrows Osaurus's interaction grammar rather
+than its visual identity. User controls stay hidden until hover; assistant
+controls and measured TTFT, decode speed, and output-token count remain visible.
+Stable turn identifiers correlate both sides of a response with the exact
+memory-only Insights record. Edit, delete, and regenerate operate on a causal
+branch, so changing an old question cannot leave later answers pretending they
+were generated from the new text.
 
 The unresolved choice is persistence. Insights is intentionally memory-only
 because it may contain legal meeting transcripts. Saving chat history by
@@ -40,13 +63,31 @@ default would quietly violate that design. Sensible options are:
 2. explicit per-conversation saving; or
 3. encrypted local history with a visible retention control.
 
-That decision comes before the interface.
+For this first version the decision is memory-only conversations, stated inside
+the sidebar. Explicit saving or encrypted retention can still be designed later
+without changing the private default underneath existing users.
 
-### Dictionary tool — measured and cleared
+Returning sessions use llama-server's host-memory prompt checkpoints rather
+than persistent slot snapshots. The cache is capped at 256 MB by default,
+checkpoints ordinary Rosy-sized conversations every 256 tokens, and disappears
+with the server. Disk KV files are deliberately rejected: they are large,
+model-specific, write-heavy, and would persist conversation-derived state behind
+an interface that promises memory-only history.
+
+### Dictionary tool — implemented, awaiting real-machine verification
 
 A read-only `dictionary.lookup(term)` tool can use macOS Dictionary Services and
 the dictionaries already enabled on the machine. It is the safest first tool:
 local, bounded, reversible, and useful for a small model.
+
+The first bounded loop is now implemented in the Ask bar. It accepts exactly
+one allowlisted call, strictly validates a single `term`, retrieves through
+Dictionary Services, shows the source entry directly, and gives the model one
+final pass with tools disabled to add a faithful gloss. It is gated to Bonsai
+1.7B Q1_0; 4B and unmeasured models receive no tool schema at all. The remaining
+work is the real-machine checklist in [`TESTING.md`](TESTING.md), especially
+Ventura lookup behavior, cancellation during both passes, and the quality of the
+gloss beside several dictionaries' formatting.
 
 Whether a 1-bit model could drive a tool loop at all was the open question, and
 it has been answered on both machines. Across 78 requests on each, Bonsai 1.7B

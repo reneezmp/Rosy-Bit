@@ -75,6 +75,7 @@ final class HTTPTrafficParser {
             }
 
             var record = RequestRecord(method: parts[0], path: parts[1])
+            record.chatMessageID = headers["x-rosybit-message-id"].flatMap(UUID.init(uuidString:))
             if !bodyResult.body.isEmpty {
                 if let whole = String(data: bodyResult.body, encoding: .utf8) {
                     // Extract structure from the whole body first; truncation

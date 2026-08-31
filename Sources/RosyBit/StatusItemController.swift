@@ -183,6 +183,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 fromCarbonMask: Config.hotKeyModifiers)
             menu.addItem(ask)
         }
+        menu.addItem(item("Chat…", #selector(showChat)))
         menu.addItem(item("Copy Endpoint URL", #selector(copyEndpoint)))
         if Config.insightsEnabled {
             let captured = InsightsStore.shared.records.count
@@ -355,6 +356,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func showAskBar() {
         AskBarWindowController.shared.show()
+    }
+
+    @objc private func showChat() {
+        ChatWindowController.shared.show()
     }
 
     @objc private func showModelSetup() {

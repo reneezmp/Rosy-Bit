@@ -172,6 +172,22 @@ enum Config {
     ///     defaults write com.rosybit.app parallelSlots -int 1
     static var parallelSlots: Int { intDefault("parallelSlots", fallback: 2, clampedTo: 1...8) }
 
+    /// Host-memory prompt checkpoints let a conversation recover a computed
+    /// prefix after its active slot has been reused. Unlike slot snapshots this
+    /// never writes conversation-derived state to disk and vanishes with the
+    /// server. Upstream defaults to an absurd 8 GiB ceiling; Rosy gets 256 MiB.
+    /// Zero disables the cache.
+    static var promptCacheRAM: Int {
+        optionalInt("promptCacheRAM", clampedTo: 0...2048) ?? 256
+    }
+
+    /// Upstream's 8,192-token checkpoint spacing is aimed at large servers and
+    /// may never fire inside Rosy's usual 2,048-token context. Smaller steps
+    /// make ordinary chat sessions reusable within the bounded RAM budget.
+    static var promptCacheCheckpointTokens: Int {
+        optionalInt("promptCacheCheckpointTokens", clampedTo: 64...8192) ?? 256
+    }
+
     /// Quantises the KV cache, e.g. `q8_0` to roughly halve the memory above
     /// for very little quality cost. Unset leaves llama-server on f16.
     ///
@@ -292,6 +308,9 @@ enum Config {
             "-c", String(contextSize),
             "-t", String(threads),
             "-np", String(parallelSlots),
+            "--cache-ram", String(promptCacheRAM),
+            "--ctx-checkpoints", "8",
+            "--checkpoint-min-step", String(promptCacheCheckpointTokens),
             "--jinja",
             "--alias", alias,
         ]

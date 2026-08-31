@@ -8,6 +8,8 @@ struct SettingsValues: Equatable {
     var contextSize = 2048
     var threads = 2
     var parallelSlots = 1
+    var promptCacheRAM = 256
+    var promptCacheCheckpointTokens = 256
     var kvCacheType = ""
     var flashAttention = ""
 
@@ -37,6 +39,8 @@ struct SettingsValues: Equatable {
         contextSize != other.contextSize
             || threads != other.threads
             || parallelSlots != other.parallelSlots
+            || promptCacheRAM != other.promptCacheRAM
+            || promptCacheCheckpointTokens != other.promptCacheCheckpointTokens
             || kvCacheType != other.kvCacheType
             || flashAttention != other.flashAttention
             || temperature != other.temperature
@@ -68,6 +72,8 @@ final class SettingsModel: ObservableObject {
         loaded.contextSize = Config.contextSize
         loaded.threads = Config.threads
         loaded.parallelSlots = Config.parallelSlots
+        loaded.promptCacheRAM = Config.promptCacheRAM
+        loaded.promptCacheCheckpointTokens = Config.promptCacheCheckpointTokens
         loaded.kvCacheType = Config.kvCacheType ?? ""
         loaded.flashAttention = Config.flashAttention ?? ""
         loaded.temperature = Config.temperature
@@ -121,6 +127,9 @@ final class SettingsModel: ObservableObject {
         defaults.set(values.contextSize, forKey: "contextSize")
         defaults.set(values.threads, forKey: "threads")
         defaults.set(values.parallelSlots, forKey: "parallelSlots")
+        defaults.set(values.promptCacheRAM, forKey: "promptCacheRAM")
+        defaults.set(values.promptCacheCheckpointTokens,
+                     forKey: "promptCacheCheckpointTokens")
         defaults.set(values.temperature, forKey: "temperature")
         defaults.set(values.topK, forKey: "topK")
         defaults.set(values.topP, forKey: "topP")
@@ -165,7 +174,8 @@ final class SettingsModel: ObservableObject {
         let serverWasBusy = ServerController.shared.state.isBusy
         let defaults = UserDefaults.standard
         for key in [
-            "contextSize", "threads", "parallelSlots", "kvCacheType", "flashAttention",
+            "contextSize", "threads", "parallelSlots", "promptCacheRAM",
+            "promptCacheCheckpointTokens", "kvCacheType", "flashAttention",
             "temperature", "topK", "topP", "repeatPenalty", "presencePenalty",
             "systemPrompt", "corsOrigins", "port", "insightsEnabled", "upstreamPort",
             "insightsCapacity", "askBarEnabled", "hotKeyCode", "hotKeyModifiers",
@@ -349,9 +359,9 @@ struct SettingsView: View {
                 .font(.callout)
                 .frame(minHeight: 80)
 
-            Text("Used only by Rosy Bit's own ask bar. It is never added to requests from "
-                 + "other applications — those send their own messages and pass through "
-                 + "untouched.")
+            Text("Used only by Rosy Bit's own Ask bar and chat window. It is never added "
+                 + "to requests from other applications — those send their own messages "
+                 + "and pass through untouched.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -395,6 +405,18 @@ struct SettingsView: View {
                  + "own questions and another app's requests each keep a warm prefix "
                  + "instead of evicting one another. Four measured about 24% slower than "
                  + "one at a long prompt, so more is not better.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Stepper("Conversation cache: \(model.values.promptCacheRAM) MB",
+                    value: $model.values.promptCacheRAM, in: 0...2048, step: 64)
+            Stepper("Cache checkpoint: \(model.values.promptCacheCheckpointTokens) tokens",
+                    value: $model.values.promptCacheCheckpointTokens,
+                    in: 64...8192, step: 64)
+            Text("Keeps recent computed conversation prefixes in bounded RAM so returning "
+                 + "to a session can avoid repeating its prompt work. It never writes them "
+                 + "to disk and quitting Rosy Bit clears everything. Set the RAM limit to "
+                 + "0 MB to disable it; 256 MB is Rosy's conservative default.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
