@@ -8,7 +8,7 @@ on explains failures later.
 
 ## Current automated and V1.1 release evidence — 2026-08-31
 
-- `swift test`: **47 tests, 0 failures**; the idempotent Core Audio write check
+- `swift test`: **48 tests, 0 failures**; the idempotent Core Audio write check
   is skipped in ordinary runs and passed separately when explicitly enabled.
 - Universal release build: **x86_64 + arm64**.
 - Strict ad-hoc signature verification: **passed**.
@@ -181,6 +181,8 @@ Then restore: `mv ~/Library/Application\ Support/RosyBit/stash/*.gguf ~/Library/
       not actually returned
 - [ ] The source entry appears under **Dictionary**, before **Rosy’s gloss**
 - [ ] Long dictionary entries wrap within the code block without horizontal scroll
+- [ ] A long source block stops at 180 points and scrolls internally while Rosy’s
+      gloss remains visibly separate below it; a compact entry does not gain empty height
 - [ ] Numbered senses, bullet senses, examples, later parts of speech, and origin
       sections appear on separate readable lines without changing source text
 - [ ] The gloss does not add an origin or sense absent from the source entry

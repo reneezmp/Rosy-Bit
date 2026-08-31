@@ -74,6 +74,9 @@ records user-visible changes; the detailed engineering history remains in Git.
   never rewrites the authoritative entry.
 - Dictionary code blocks now wrap to the available Ask bar or chat width instead
   of becoming one indefinitely scrolling line.
+- Long dictionary code blocks now stop at 180 points and scroll internally, so
+  the authoritative source cannot push Rosy’s gloss out of the visible answer.
+  Compact entries keep their natural height.
 - Text inside user-message capsules is right-aligned as well as the capsule
   itself, so multi-line turns retain the intended conversational geometry.
 - User-message capsules now hug short messages and grow only until their

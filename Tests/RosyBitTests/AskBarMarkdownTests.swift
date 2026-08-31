@@ -45,4 +45,13 @@ final class AskBarMarkdownTests: XCTestCase {
         XCTAssertEqual(String(blocks[0].content.characters), "Heading")
         XCTAssertEqual(String(blocks[2].content.characters), "First")
     }
+
+    func testOnlyLongCodeBlocksReceiveTheirOwnHeightLimitedScroller() {
+        XCTAssertFalse(MarkdownAnswer.codeBlockNeedsScroll(
+            AttributedString("A compact dictionary entry.")))
+        XCTAssertTrue(MarkdownAnswer.codeBlockNeedsScroll(
+            AttributedString(String(repeating: "A substantial sense. ", count: 30))))
+        XCTAssertTrue(MarkdownAnswer.codeBlockNeedsScroll(
+            AttributedString(Array(repeating: "sense", count: 10).joined(separator: "\n"))))
+    }
 }

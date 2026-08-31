@@ -627,6 +627,13 @@ struct AskBarView: View {
 struct MarkdownAnswer: View {
     let source: String
 
+    /// A source excerpt should remain visibly subordinate to Rosy's answer.
+    /// Long dictionary articles scroll inside their own block instead of
+    /// consuming the entire Ask result or conversation viewport.
+    static let codeBlockMaximumHeight: CGFloat = 180
+    private static let codeBlockCharacterLimit = 480
+    private static let codeBlockLineLimit = 9
+
     private var blocks: [AskBarMarkdown.Block] { AskBarMarkdown.blocks(source) }
 
     var body: some View {
@@ -659,14 +666,7 @@ struct MarkdownAnswer: View {
             listRow(marker: "\(ordinal).", block: block)
 
         case .codeBlock:
-            Text(block.content)
-                .font(.system(.callout, design: .monospaced))
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
-            .background(Color.primary.opacity(0.06))
-            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            codeBlock(block.content)
 
         case .blockQuote:
             HStack(alignment: .top, spacing: 9) {
@@ -682,6 +682,38 @@ struct MarkdownAnswer: View {
         case .thematicBreak:
             Divider()
         }
+    }
+
+    @ViewBuilder
+    private func codeBlock(_ content: AttributedString) -> some View {
+        if Self.codeBlockNeedsScroll(content) {
+            ScrollView(.vertical) {
+                codeText(content)
+            }
+            .frame(height: Self.codeBlockMaximumHeight)
+            .scrollIndicators(.visible)
+            .background(Color.primary.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        } else {
+            codeText(content)
+                .background(Color.primary.opacity(0.06))
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        }
+    }
+
+    private func codeText(_ content: AttributedString) -> some View {
+        Text(content)
+            .font(.system(.callout, design: .monospaced))
+            .textSelection(.enabled)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10)
+    }
+
+    static func codeBlockNeedsScroll(_ content: AttributedString) -> Bool {
+        let plain = String(content.characters)
+        return plain.count > codeBlockCharacterLimit
+            || plain.filter { $0 == "\n" }.count >= codeBlockLineLimit
     }
 
     private func listRow(marker: String, block: AskBarMarkdown.Block) -> some View {
