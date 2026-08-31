@@ -25,8 +25,13 @@ records user-visible changes; the detailed engineering history remains in Git.
   feels like calling the tool. Ambiguous and multi-line requests remain with
   normal model routing, avoiding both missed lookups and pasted-text triggers.
 - Rosy can now report the Mac’s current output volume through a validated,
-  read-only `volume_get` tool backed by Core Audio. It has no shell path and no
-  ability to change volume or mute the device.
+  read-only `volume_get` tool backed by Core Audio.
+- Exact one-line commands can set volume from 0–100 or mute/unmute immediately,
+  without a confirmation round-trip or model inference. Rosy Bit parses the
+  value from the user’s own text and executes it natively; state-changing
+  schemas are never exposed to the model. Vague requests get a local prompt
+  for an exact level; out-of-range, decimal, and multi-line requests cannot
+  mutate the Mac.
 - Oversized dictionary articles are shortened locally before they reach the
   model, with the reduction disclosed beside the source excerpt. This keeps a
   bilingual mega-entry from consuming Rosy’s context window and both CPU cores.

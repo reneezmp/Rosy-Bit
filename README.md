@@ -39,7 +39,8 @@ Rosy Bit includes:
   `[Timestamp: 2026-08-30 13:50 GMT-3]`;
 - deterministic local Dictionary Services lookups for explicit definition
   requests, with the source entry visibly separated from Rosy’s gloss;
-- a read-only Core Audio tool for reporting the current system output volume;
+- native Core Audio volume reporting plus deterministic 0–100, mute, and
+  unmute commands that never entrust state-changing arguments to the model;
 - an in-memory Insights window for prompts, responses, parameters, and timing;
 - settings for ports, context, threads, slots, KV cache, sampling, CORS, the
   system prompt, and the Ask shortcut;
@@ -79,8 +80,10 @@ that let their users choose where inference happens.
 - Captured credentials are redacted and oversized bodies are truncated.
 - Rosy Bit gives the model no shell or file access. On the measured Bonsai
   1.7B Q1_0 build, its only native capabilities are a bounded Dictionary
-  Services lookup and a read-only Core Audio volume query. Both are strictly
-  allowlisted and validated; neither can mutate the Mac.
+  Services lookup and a read-only Core Audio volume query. Exact one-line volume
+  changes are parsed and range-checked by Rosy Bit itself, outside the model;
+  vague requests ask for an exact level, while embedded instructions cannot
+  mutate the Mac.
 
 If browser access is not needed, CORS can be restricted in Settings. Loopback
 keeps other machines out; CORS controls pages running in your own browser.

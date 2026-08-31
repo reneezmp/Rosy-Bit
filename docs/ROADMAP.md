@@ -126,31 +126,32 @@ Two findings shape the build:
   soft spot was phrasing coverage, not format — and it fell either way depending
   on sampling rather than failing outright.
 
-### Read-only native volume — implemented
+### Native volume controls — implemented
 
 `volume.get` reads the current system output volume through Core Audio without
-screen automation, shell execution, or any ability to mutate the Mac. It uses
-the same strict one-call allowlist as the dictionary and is gated to the
-measured Bonsai 1.7B Q1_0 build.
+screen automation or shell execution. Its automatic model-facing schema remains
+strictly read-only and gated to the measured Bonsai 1.7B Q1_0 build.
 
-`volume.set(0...100)` and `volume.mute` remain later work. The earlier proposal
-for a mandatory conversational confirmation would add a costly extra turn to a
-small local model. Before either ships, the interaction needs a design that
-preserves argument fidelity without making every ordinary adjustment a
-two-round conversation—for example a direct deterministic intent path or a
-non-conversational UI affordance.
+`volume.set(0...100)`, mute, and unmute take a different path. Explicit one-line
+commands are parsed from the user's own text, range-checked, and executed by
+Rosy Bit without model inference or a confirmation round-trip. The model never
+receives a state-changing schema, so it cannot reinterpret `200` as `20` or
+fire a control from ordinary conversation. Vague relative requests and
+instructions embedded in pasted multi-line text do not mutate anything; a
+recognised vague request asks locally for an exact 0–100% level instead.
 
-The model must never receive unrestricted shell access. Tool requests are
-structured, allowlisted, range-checked, executed by native code, and returned to
-the model as observations. Read-only tools come before state-changing ones.
+The model must never receive unrestricted shell access. Model-routed requests
+are structured, allowlisted, validated, executed by native code, and returned
+as observations. State-changing native intents remain outside that probabilistic
+loop entirely.
 
 The read-only-first ordering has a measurement behind it. Asked to set the volume to 200,
 the model answered with a schema-valid, in-range, and simply wrong `level: 20`.
 When a request cannot be honoured it does not signal failure; it produces
 something plausible and proceeds. Validation cannot catch that. State-changing
-controls therefore remain absent until semantic fidelity and interaction cost
-are solved together. A wrong lookup costs a wrong definition. A wrong
-`volume.set` costs trust.
+controls therefore use the deterministic route above: semantic fidelity and
+interaction cost are solved together. A wrong lookup costs a wrong definition.
+A wrong `volume.set` costs trust.
 
 ### Native 1-bit model laboratory
 

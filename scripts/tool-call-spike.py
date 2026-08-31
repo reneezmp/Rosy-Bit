@@ -22,8 +22,9 @@
 # (4) is the one that matters most and passes least. A model will happily
 # answer "set volume to 200" with a schema-valid `{"level": 20}`. Range checks
 # cannot catch that: the value is in range and still wrong. Read-only tools are
-# therefore safe to ship on schema validation alone; state-changing tools are
-# not, and need the parsed intent echoed back to the user before execution.
+# therefore safe to ship on schema validation alone; state-changing schemas are
+# not. Rosy Bit instead parses explicit mutations from the user's own text and
+# never gives those operations to the model.
 #
 # Note that llama-server must have been launched with `--jinja`, or the chat
 # template will not expose tool calling at all and every case will MISS.

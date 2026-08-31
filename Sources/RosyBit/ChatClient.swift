@@ -109,6 +109,23 @@ struct ChatClient {
         onCompletion: @escaping (Result<GenerationMetrics, Error>) -> Void
     ) -> Task<Void, Never> {
         Task {
+            if let volumeCommand = messages.last(where: { $0.role == "user" }).flatMap({
+                VolumeTool.explicitCommand(in: $0.content)
+            }) {
+                do {
+                    let response = try VolumeTool.execute(volumeCommand)
+                    if Task.isCancelled { return }
+                    await MainActor.run {
+                        onDelta(response)
+                        onCompletion(.success(.unavailable))
+                    }
+                } catch {
+                    if Task.isCancelled { return }
+                    await MainActor.run { onCompletion(.failure(error)) }
+                }
+                return
+            }
+
             // Costs the caller nothing. The prefix has to be prefilled either
             // way, so waiting for a warm already doing it is the same work in a
             // different order — and it keeps this question on the slot the warm

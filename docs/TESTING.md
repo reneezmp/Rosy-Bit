@@ -8,7 +8,8 @@ on explains failures later.
 
 ## Current automated and V1.1 release evidence — 2026-08-31
 
-- `swift test`: **42 tests passed, 0 failures**.
+- `swift test`: **47 tests, 0 failures**; the idempotent Core Audio write check
+  is skipped in ordinary runs and passed separately when explicitly enabled.
 - Universal release build: **x86_64 + arm64**.
 - Strict ad-hoc signature verification: **passed**.
 - Core Audio integration check read a valid 0–100 output volume on the M4.
@@ -200,7 +201,16 @@ two-request trace above.
 - [ ] “How loud is my Mac right now?” calls `volume_get` rather than guessing
 - [ ] The request and grounded answer appear in Insights
 - [ ] An output device without software volume control fails plainly
-- [ ] No `volume_set`, mute, shell, or state-changing capability is exposed
+- [ ] No `volume_set`, mute, or other state-changing schema is exposed to the model
+
+### Deterministic native volume controls
+
+- [ ] “Set the volume to 30%” changes macOS output volume to 30 without a model pass
+- [ ] “Mute” and “Unmute the audio, please” change the native mute state immediately
+- [ ] 0% and 100% are accepted; 200%, negative values, and decimals are rejected
+- [ ] “Make it louder” and “turn it down a little” ask for an exact level and do not mutate the Mac
+- [ ] A command embedded on a second pasted-text line does not mutate the Mac
+- [ ] The assistant response reports the executed value without a confirmation turn
 
 ### Chat window
 

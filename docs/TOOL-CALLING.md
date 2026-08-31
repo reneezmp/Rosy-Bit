@@ -167,9 +167,12 @@ invisible. On Rosy it is worth about fourteen seconds a turn.
 *"Set volume to 200"* produced `volume_set(level=20)` in all three Rosy passes,
 having produced it in two of three on the M4 — five times in six across two
 architectures. It is a property of the model, not a run of bad luck. Rosy Bit
-therefore ships only the read-only `volume_get`; state-changing volume remains
-absent until argument fidelity can be protected without forcing a second chat
-turn into every ordinary adjustment.
+therefore exposes only read-only `volume_get` to the model. Exact 0–100, mute,
+and unmute commands use a deterministic app-side parser over the user’s own
+one-line text, so argument fidelity is protected without forcing a second chat
+turn into every ordinary adjustment. Recognised relative requests are also
+handled locally and ask for an exact 0–100% level rather than letting the model
+claim an adjustment it could not make.
 
 The one MISSED was case 14 again, *"How loud is my Mac right now?"*, in one pass
 of three. That is the same borderline phrasing the M4 found, failing at a
