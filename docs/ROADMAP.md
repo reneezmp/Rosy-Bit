@@ -90,6 +90,11 @@ field-observed misses for plain “define X” and “what does X mean?” reque
 removing an unnecessary model pass. Ambiguous language, origins, and pasted
 multi-line text remain under normal automatic routing.
 
+Dictionary Services' flattened article text is also given a lossless display
+pass. Headwords, pronunciation, senses, examples, parts of speech, and origin
+sections receive whitespace structure while every source character remains in
+its original order.
+
 Whether a 1-bit model could drive a tool loop at all was the open question, and
 it has been answered on both machines. Across 78 requests on each, Bonsai 1.7B
 Q1_0 produced no malformed arguments, invented no tools, and fired no tool where

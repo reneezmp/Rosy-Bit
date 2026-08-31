@@ -62,6 +62,11 @@ records user-visible changes; the detailed engineering history remains in Git.
 
 ### Fixed
 
+- Flattened Dictionary Services articles now regain readable structure in the
+  source block: headword and pronunciation, numbered and bullet senses,
+  indented examples, later parts of speech, and origin/derivative sections each
+  receive appropriate line breaks. Formatting changes whitespace only and
+  never rewrites the authoritative entry.
 - Dictionary code blocks now wrap to the available Ask bar or chat width instead
   of becoming one indefinitely scrolling line.
 - Text inside user-message capsules is right-aligned as well as the capsule

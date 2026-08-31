@@ -87,6 +87,33 @@ final class DictionaryToolTests: XCTestCase {
         XCTAssertTrue(output.contains("### Rosy’s gloss"))
     }
 
+    func testFlatDictionaryArticleGetsReadableSenseAndExampleBreaks() {
+        let source = "sabbath | ˈsabəθ | noun 1 (often the Sabbath) a day of religious observance: we observe the Sabbath | [as modifier] : sabbath candles | sabbath law. 2 a supposed midnight meeting held by witches. ORIGIN Old English sabat."
+        let formatted = DictionaryTool.formattedDefinitionForDisplay(source)
+
+        XCTAssertTrue(formatted.contains("sabbath | ˈsabəθ |\n\nnoun\n\n1 "))
+        XCTAssertTrue(formatted.contains("observance:\n    we observe the Sabbath"))
+        XCTAssertTrue(formatted.contains("\n    | [as modifier] :\n    sabbath candles"))
+        XCTAssertTrue(formatted.contains("sabbath law.\n\n2 a supposed"))
+        XCTAssertTrue(formatted.contains("\n\nORIGIN\nOld English"))
+    }
+
+    func testBulletSensesAndLaterPartsOfSpeechGetSeparateBlocks() {
+        let source = "lust | lʌst | noun [mass noun] strong desire: his lust returned. ● [in singular] a passionate desire: a lust for power. verb [no object] have strong desire: they lusted after power."
+        let formatted = DictionaryTool.formattedDefinitionForDisplay(source)
+
+        XCTAssertTrue(formatted.contains("returned.\n\n● [in singular]"))
+        XCTAssertTrue(formatted.contains("power.\n\nverb [no object]"))
+        XCTAssertTrue(formatted.contains("desire:\n    they lusted"))
+    }
+
+    func testDisplayFormattingChangesWhitespaceButNoSourceCharacters() {
+        let source = "word | wɜːd | noun 1 a unit of language: a written word | a spoken word. 2 a promise. DERIVATIVES wordless."
+        let formatted = DictionaryTool.formattedDefinitionForDisplay(source)
+
+        XCTAssertEqual(collapsingWhitespace(formatted), collapsingWhitespace(source))
+    }
+
     func testDictionaryFenceOutgrowsBackticksInsideEntry() {
         let output = DictionaryTool.displayedEntry(
             term: "code",
@@ -124,5 +151,9 @@ final class DictionaryToolTests: XCTestCase {
 
         XCTAssertTrue(display.contains("No entry was found"))
         XCTAssertTrue(observation.contains("do not invent a definition"))
+    }
+
+    private func collapsingWhitespace(_ text: String) -> String {
+        text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
     }
 }

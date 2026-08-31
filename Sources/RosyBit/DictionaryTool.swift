@@ -196,13 +196,82 @@ enum DictionaryTool {
     static func displayedEntry(term: String, definition: String?) -> String {
         if let definition, !definition.isEmpty {
             let excerpt = boundedDefinition(definition)
-            let fence = codeFence(for: excerpt.text)
+            let displayedDefinition = formattedDefinitionForDisplay(excerpt.text)
+            let fence = codeFence(for: displayedDefinition)
             let notice = excerpt.wasShortened
                 ? "\n\n*Entry shortened locally from \(excerpt.originalCount.formatted()) to \(excerpt.includedSourceCount.formatted()) source characters to protect Rosy’s context and CPU.*"
                 : ""
-            return "### Dictionary: \(term)\n\n\(fence)\n\(excerpt.text)\n\(fence)\(notice)\n\n### Rosy’s gloss\n\n"
+            return "### Dictionary: \(term)\n\n\(fence)\n\(displayedDefinition)\n\(fence)\(notice)\n\n### Rosy’s gloss\n\n"
         }
         return "### Dictionary: \(term)\n\n*No entry was found in the dictionaries enabled on this Mac.*\n\n### Rosy’s gloss\n\n"
+    }
+
+    /// Dictionary Services returns a rich article as one flat string. Restore
+    /// its visible hierarchy without rewriting the source: every character
+    /// remains in order and this function inserts whitespace only.
+    static func formattedDefinitionForDisplay(_ definition: String) -> String {
+        let cleaned = definition.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return cleaned }
+
+        var header: String?
+        var body = cleaned
+        if let firstPipe = cleaned.range(of: " | "),
+           let secondPipe = cleaned.range(
+               of: " | ",
+               range: firstPipe.upperBound..<cleaned.endIndex) {
+            header = String(cleaned[..<secondPipe.upperBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            body = String(cleaned[secondPipe.upperBound...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        // Major dictionary labels and later parts of speech begin new blocks.
+        body = replacingMatches(
+            in: body,
+            pattern: #"\s+(ORIGIN|PHRASES|DERIVATIVES)\s+"#,
+            with: "\n\n$1\n")
+        body = replacingMatches(
+            in: body,
+            pattern: #"\.\s+(noun|verb|adjective|adverb|exclamation|preposition|conjunction|pronoun|determiner)(?=\s|$)"#,
+            with: ".\n\n$1")
+
+        // Numbered and bullet senses get breathing room. Restrict numbered
+        // boundaries to a preceding full stop so years and quantities inside
+        // definitions are never mistaken for sense numbers.
+        body = replacingMatches(
+            in: body,
+            pattern: #"\.\s+([2-9][0-9]*)\s+"#,
+            with: ".\n\n$1 ")
+        body = body.replacingOccurrences(of: " ● ", with: "\n\n● ")
+        body = replacingMatches(
+            in: body,
+            pattern: #"^((?:noun|verb|adjective|adverb|exclamation|preposition|conjunction|pronoun|determiner)(?:\s+\[[^\]]+\])?)\s+([1-9][0-9]*)\s+"#,
+            with: "$1\n\n$2 ")
+
+        // Dictionary articles conventionally place examples after colons and
+        // separate parallel examples with pipes. Preserve those delimiters and
+        // merely move the examples onto indented lines.
+        body = replacingMatches(in: body, pattern: #":\s+"#, with: ":\n    ")
+        body = body.replacingOccurrences(of: " | ", with: "\n    | ")
+
+        let formattedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let header, !formattedBody.isEmpty else { return formattedBody }
+        return "\(header)\n\n\(formattedBody)"
+    }
+
+    private static func replacingMatches(
+        in text: String,
+        pattern: String,
+        with template: String
+    ) -> String {
+        guard let expression = try? NSRegularExpression(
+            pattern: pattern,
+            options: [.caseInsensitive]) else { return text }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return expression.stringByReplacingMatches(
+            in: text,
+            range: range,
+            withTemplate: template)
     }
 
     struct DefinitionExcerpt: Equatable {

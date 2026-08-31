@@ -8,10 +8,12 @@ on explains failures later.
 
 ## Current automated and V1.1 release evidence — 2026-08-31
 
-- `swift test`: **39 tests passed, 0 failures**.
+- `swift test`: **42 tests passed, 0 failures**.
 - Universal release build: **x86_64 + arm64**.
 - Strict ad-hoc signature verification: **passed**.
 - Core Audio integration check read a valid 0–100 output volume on the M4.
+- Rosy-on-Sequoia confirmed the read-only volume result and deterministic
+  dictionary routing in the real Ask bar.
 - App and endpoint exercised successfully on OCLP Sequoia.
 - Native Ventura failure reproduced, traced to the proxy implementation, fixed,
   and retested successfully with Rosy Bit listening on loopback.
@@ -178,6 +180,8 @@ Then restore: `mv ~/Library/Application\ Support/RosyBit/stash/*.gguf ~/Library/
       not actually returned
 - [ ] The source entry appears under **Dictionary**, before **Rosy’s gloss**
 - [ ] Long dictionary entries wrap within the code block without horizontal scroll
+- [ ] Numbered senses, bullet senses, examples, later parts of speech, and origin
+      sections appear on separate readable lines without changing source text
 - [ ] The gloss does not add an origin or sense absent from the source entry
 - [ ] A missing term is reported plainly rather than receiving an invented entry
 - [ ] A normal prompt streams directly and does not trigger a dictionary call
