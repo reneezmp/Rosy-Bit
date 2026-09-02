@@ -80,9 +80,7 @@ final class HTTPTrafficParser {
                 if let whole = String(data: bodyResult.body, encoding: .utf8) {
                     // Extract structure from the whole body first; truncation
                     // afterwards would leave JSON that cannot be parsed.
-                    record.promptMessages = RequestRecord.extractMessages(fromWholeBody: whole)
-                    applyRequestParameters(from: whole, to: &record)
-                    record.requestBody = BodySanitiser.sanitise(whole)
+                    record.applyChatRequestBody(whole)
                 }
             }
 
@@ -90,17 +88,6 @@ final class HTTPTrafficParser {
             startTimes.append(Date())
             consume(&requestBuffer, upTo: bodyStart + bodyResult.consumed, scanned: &requestScanned)
         }
-    }
-
-    private func applyRequestParameters(from body: String, to record: inout RequestRecord) {
-        guard let data = body.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return
-        }
-        record.model = object["model"] as? String
-        record.temperature = object["temperature"] as? Double
-        record.maxTokens = (object["max_tokens"] ?? object["max_completion_tokens"]) as? Int
-        record.streamed = (object["stream"] as? Bool) ?? false
     }
 
     // MARK: - Server → client

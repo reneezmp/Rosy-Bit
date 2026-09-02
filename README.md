@@ -30,6 +30,8 @@ Rosy Bit includes:
 
 - a universal Intel + Apple Silicon app targeting macOS Ventura 13 and later;
 - first-run downloads for Bonsai 1.7B, plus 4B and 8B choices in the model menu;
+- Hugging Face GGUF import from an `owner/repository`, repository URL, or direct
+  `.gguf` link, with quantisation selection and verified downloads;
 - actual GGUF file sizes beside installed model names;
 - a configurable global Ask bar, initially **⌥Space**;
 - a memory-only multi-session chat window with bounded prompting, message
@@ -41,12 +43,28 @@ Rosy Bit includes:
   requests, with the source entry visibly separated from Rosy’s gloss;
 - native Core Audio volume reporting plus deterministic 0–100, mute, and
   unmute commands that never entrust state-changing arguments to the model;
+- a safe native calculator for arithmetic, percentages, and common unit
+  conversions, with no scripting or arbitrary evaluation;
+- on-demand battery, power-source, storage, and installed-memory readings;
+- named local timers with native macOS notifications, listing, and exact
+  cancellation commands;
+- exact app launch/quit and Finder navigation commands, plus bounded installed-
+  app lookup;
+- read-only, twelve-result Spotlight file search with direct argument passing;
+- native Apple Reminders listing and exact create, complete, and delete commands;
+- an explicitly selected cloud-model profile for DeepSeek or a custom
+  OpenAI-compatible HTTPS provider, with credentials stored in macOS Keychain;
+- a **Skills** submenu with eight persistent, independent capability switches;
+- mutually exclusive **Guided** and **Model-led** tool routing: Bonsai-friendly
+  deterministic fast paths or fuller schemas for capable local/cloud models,
+  with the same strict native validation in both modes;
 - an in-memory Insights window for prompts, responses, parameters, and timing;
 - settings for ports, context, threads, slots, KV cache, sampling, CORS, the
   system prompt, and the Ask shortcut;
 - safe cancellation, orphan cleanup, port-collision reporting, and launch at
   login; and
-- no account, subscription, cloud inference, telemetry, or background polling.
+- no Rosy Bit account, subscription, telemetry, automatic cloud fallback, or
+  background polling.
 
 The sakura remains quiet when Rosy is quiet. During inference, a green light
 appears beside it—not because everything needs an animation, but because a
@@ -78,12 +96,20 @@ that let their users choose where inference happens.
 - Insights retains at most a bounded in-memory history and disappears when the
   app quits; it is never written to disk.
 - Captured credentials are redacted and oversized bodies are truncated.
-- Rosy Bit gives the model no shell or file access. On the measured Bonsai
-  1.7B Q1_0 build, its only native capabilities are a bounded Dictionary
-  Services lookup and a read-only Core Audio volume query. Exact one-line volume
-  changes are parsed and range-checked by Rosy Bit itself, outside the model;
-  vague requests ask for an exact level, while embedded instructions cannot
-  mutate the Mac.
+- Cloud inference is opt-in from **Model → Cloud Models**. Once registered, a
+  provider remains a checkable menu choice, so switching between it and local
+  GGUFs does not reopen the configuration window. When selected, the
+  conversation and system prompt are sent directly to that provider; the API
+  key stays in this Mac's Keychain. Requests and streamed responses still enter
+  the same bounded, memory-only Insights window without recording that key.
+- Rosy Bit gives the model no shell or file access. Native calls are bounded,
+  allowlisted, and strictly validated. Exact one-line volume changes and timer
+  creation/cancellation are parsed by Rosy Bit itself, outside the model; their
+  model-facing schemas remain read-only.
+- Turning a skill off removes its schema and deterministic routes. With all
+  all eight off, Rosy sends no `tools` or `tool_choice` fields at all. Existing
+  timers already handed to macOS continue to ring, but the disabled skill can
+  neither create nor operate on them.
 
 If browser access is not needed, CORS can be restricted in Settings. Loopback
 keeps other machines out; CORS controls pages running in your own browser.

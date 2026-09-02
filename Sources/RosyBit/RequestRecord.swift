@@ -84,6 +84,42 @@ struct RequestRecord: Identifiable {
                 role: role, content: BodySanitiser.sanitise(text) ?? "")
         }
     }
+
+    /// Captures the common OpenAI-compatible request fields from a complete
+    /// JSON body. Both the loopback proxy and Rosy's direct cloud client use
+    /// this path, so Insights does not become two subtly different products.
+    mutating func applyChatRequestBody(_ wholeBody: String) {
+        promptMessages = Self.extractMessages(fromWholeBody: wholeBody)
+        requestBody = BodySanitiser.sanitise(wholeBody)
+
+        guard let data = wholeBody.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return }
+        model = object["model"] as? String
+        temperature = object["temperature"] as? Double
+        maxTokens = (object["max_tokens"] ?? object["max_completion_tokens"]) as? Int
+        streamed = (object["stream"] as? Bool) ?? false
+    }
+
+    /// Starts a memory-only Insights record for a request that goes directly
+    /// to a cloud provider instead of crossing Rosy's recording proxy. The
+    /// Authorization header is deliberately not accepted here: secrets never
+    /// enter the record in the first place.
+    static func directCloudRequest(
+        url: URL,
+        body: String,
+        chatMessageID: UUID?,
+        startedAt: Date = Date()
+    ) -> RequestRecord {
+        let host = url.host.map { "\($0)" } ?? "cloud"
+        var record = RequestRecord(
+            startedAt: startedAt,
+            method: "POST",
+            path: host + url.path)
+        record.chatMessageID = chatMessageID
+        record.applyChatRequestBody(body)
+        return record
+    }
 }
 
 /// Keeps bodies safe to hold and safe to show.

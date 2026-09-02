@@ -5,6 +5,74 @@ records user-visible changes; the detailed engineering history remains in Git.
 
 ## Unreleased
 
+- Registered cloud providers now appear as checkable choices under
+  **Model → Cloud Models**. Switching back from a local GGUF no longer requires
+  reopening the provider window; configuration remains a separate menu action.
+- Added **Model → Import from Hugging Face…**. Rosy accepts repository IDs,
+  repository URLs, and direct GGUF links; lists every GGUF file before download;
+  validates the finished file; then selects it and restarts the local server.
+  Standard Transformers repositories are identified clearly instead of being
+  mistaken for llama.cpp-ready models.
+
+### Added
+
+- **Skills → Tool Routing** now offers mutually exclusive **Guided** and
+  **Model-led** modes. Guided preserves deterministic Bonsai fast paths;
+  Model-led exposes validated action schemas for capable local/cloud models and
+  explicitly enables tool calling for otherwise-unmeasured local models.
+- Model-led volume, timer, Apps/Finder, and Reminders actions reuse Rosy's
+  native allowlists and bounds, execute at most once per turn, and require no
+  extra confirmation exchange.
+- A new **Skills** submenu below **Model** independently toggles Dictionary,
+  Volume Control, Calculator & Units, Timers, and Battery & System for Rosy's
+  own local and cloud conversations. Choices persist across relaunches and
+  default to enabled.
+- Disabled skills disappear from the request schema and cannot execute through
+  deterministic or model-routed paths. When all are disabled, Rosy omits the
+  complete `tools` and `tool_choice` segment; local prefix warming immediately
+  refills the new schema-free prefix.
+- Calculator & Units evaluates bounded arithmetic, percentages, and common
+  length, mass, volume, time, data, and temperature conversions in native code.
+  Its parser accepts the whole expression or rejects it; it cannot execute
+  scripts or arbitrary code.
+- Battery & System reads battery charge, charging state, current power source,
+  startup-disk capacity, and installed memory from native macOS APIs only when
+  requested—never through background polling.
+- Exact timer commands create named local notifications, list active Rosy
+  timers, or cancel one/all without a model round-trip. Minimal timer metadata
+  persists so notifications and cancellation survive relaunches; the model can
+  only call the read-only list operation.
+- Apps & Finder adds exact one-line app launch/quit, standard-folder opening,
+  Finder reveal, and read-only installed-app lookup.
+- File Search provides bounded read-only Spotlight results without invoking a
+  shell, and Reminders uses EventKit for native list/create/complete/delete
+  operations with one-time macOS permission.
+- **Model → Cloud Model…** now opens a compact provider window for either
+  DeepSeek or a custom OpenAI-compatible HTTPS endpoint. A saved cloud profile
+  can be selected without deleting the installed local model, and choosing a
+  local model switches inference home again.
+- Cloud API credentials are stored in macOS Keychain rather than preferences,
+  logs, Insights, or request payloads. Custom providers may intentionally be
+  configured without a key when their endpoint does not require one.
+- Cloud requests preserve Rosy's system/user message order, stream answers and
+  metrics through the existing chat interface, and retain the bounded native
+  dictionary and volume tools. DeepSeek requests use canonical JSON and
+  explicitly disable thinking mode, avoiding its special requirement to replay
+  private `reasoning_content` throughout tool-call history.
+
+### Fixed
+
+- Explicit searches for files **named** or **called** something now constrain
+  Spotlight to filesystem names instead of returning documents whose contents
+  merely mention the search term.
+- Direct cloud requests now appear in memory-only Insights with their ordered
+  prompt, redacted request body, streamed answer or tool call, provider status,
+  token usage, duration, and the same chat-message correlation used by
+  **Inspect response**. They previously bypassed the loopback recording proxy
+  and disappeared from Insights entirely.
+- Installing or warming a local model can no longer take inference back from a
+  cloud profile that the user explicitly selected.
+
 ## [1.1.0] — 2026-08-31
 
 ### Added

@@ -14,6 +14,8 @@ hardware other people have written off.
 - Configurable global Ask bar with streaming Markdown and bounded scrolling.
 - Compact, labelled local timestamps on every user turn.
 - First-run Bonsai download, 1.7B/4B/8B choices, and real installed sizes.
+- Hugging Face GGUF import with explicit file selection, progress, validation,
+  and a clear boundary for repositories that only contain Transformers weights.
 - Settings for inference, sampling, cache, ports, CORS, prompt, and shortcut.
 - Inference indicator, cancellation, login launch, logs, and careful orphan
   handling.
@@ -153,6 +155,62 @@ controls therefore use the deterministic route above: semantic fidelity and
 interaction cost are solved together. A wrong lookup costs a wrong definition.
 A wrong `volume.set` costs trust.
 
+### Optional cloud models — implemented
+
+The Model submenu can now select a saved DeepSeek profile or a custom
+OpenAI-compatible HTTPS provider. This is an explicit mode, never an automatic
+fallback: choosing cloud stops Rosy Bit's local server, and choosing an
+installed model returns inference to the Mac. Provider metadata lives in
+preferences while the credential lives in macOS Keychain.
+
+DeepSeek gets its own request policy rather than being treated as a logo pasted
+over generic OpenAI JSON. Rosy preserves system/user ordering and sends stable,
+canonically encoded bodies. Thinking mode is disabled in this first version:
+DeepSeek requires prior `reasoning_content` to be replayed when tools are used,
+while Rosy's conversations intentionally retain only visible messages. Keeping
+private reasoning merely to satisfy a provider-specific transcript contract
+would violate that boundary. Dictionary and volume tools continue to use
+Rosy's local, allowlisted execution loop even when the answer model is remote.
+
+### User-controlled skills — implemented
+
+**Skills** sits directly below **Model** and exposes eight independent persistent
+switches: Dictionary, Volume Control, Calculator & Units, Timers, Battery &
+System, Apps & Finder, File Search, and Reminders. The same preferences govern
+local and cloud conversations. Turning a
+skill off removes its model-facing schema and its product-side deterministic
+router; Volume Control off therefore blocks exact set/mute/unmute commands as
+well as `volume_get`, while Timers off blocks creation, listing, and
+cancellation. Timers already scheduled with macOS remain scheduled rather than
+being silently destroyed by a UI toggle.
+
+Calculator & Units uses a complete-input parser for arithmetic, percentages,
+and an allowlisted unit catalogue; it is not a scripting engine. Battery &
+System samples IOKit and Foundation only when asked. Timer creation and
+cancellation use strict one-line grammar outside the model, while the model can
+only list the minimal timer records that Rosy persists for relaunch-safe native
+notifications.
+
+Apps & Finder keeps launch, quit, folder-opening, and reveal mutations behind
+strict product-side grammar while exposing only installed-app lookup to the
+model. File Search invokes Spotlight directly with a bounded result count and
+no shell. Reminders uses EventKit: the model can list, while exact user commands
+create, complete, or delete without an extra confirmation turn.
+
+When no skill is enabled, Rosy omits `tools` and `tool_choice` entirely.
+For local inference, changing the list immediately warms the newly stable
+prefix rather than charging the next question for it. Each capability remains
+an ordinary independent toggle; there is no redundant bulk-disable switch.
+
+**Tool Routing** is a mutually exclusive choice inside Skills. **Guided** is
+the default and keeps deterministic fast paths plus read-only model schemas for
+the measured Bonsai builds. **Model-led** adds bounded action schemas for
+volume, timers, Apps & Finder, and Reminders; this is also the explicit opt-in
+that enables tools for other local models. Cloud models support either mode.
+Both paths still enforce allowlists, exact JSON shapes, ranges, existing-path
+checks, enabled-skill gates, and one tool execution per turn. Model-led loosens
+interpretation, never validation, and adds no confirmation round-trip.
+
 ### Native 1-bit model laboratory
 
 Bonsai remains the default because it already works across Rosy's Intel Ventura
@@ -194,7 +252,7 @@ The project grows by consent, not by quietly accumulating authority.
 ## Permanent guardrails
 
 - Loopback by default; never expose inference to the LAN accidentally.
-- No telemetry, account, subscription, or cloud fallback.
+- No telemetry, Rosy Bit account, subscription, or automatic cloud fallback.
 - No background polling merely to make an indicator animate.
 - No transcript persistence hidden behind a friendly interface.
 - No arbitrary command execution delegated to a probabilistic model.

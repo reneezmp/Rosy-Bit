@@ -4,9 +4,9 @@ import Foundation
 
 /// Narrow native access to the Mac's output volume.
 ///
-/// The model-facing schema remains read-only. State changes are available only
-/// through deterministic parsing of the user's own one-line command, so no
-/// probabilistic argument is ever executed.
+/// Guided routing exposes only the read operation and handles changes through
+/// deterministic user grammar. Model-led routing may add a separate action
+/// schema, but it still lands in these same range-checked native commands.
 enum VolumeTool {
     static let name = "volume_get"
 

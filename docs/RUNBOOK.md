@@ -259,10 +259,59 @@ A sakura appears in the menu bar. There is no Dock icon or permanent main
 window—`LSUIElement` keeps Rosy Bit out of the Dock—but the menu can open the
 Ask bar, Settings, Insights, the model downloader, and the log.
 
+### Optional cloud model
+
+Open **Model → Cloud Model…**, choose **DeepSeek** or **Custom Provider**, enter
+the model ID and credential, then choose **Save & Use Cloud**. DeepSeek uses its
+official chat-completions endpoint; a custom OpenAI-compatible base URL such as
+`https://example.com/v1` is completed to `/v1/chat/completions`. Custom URLs
+must use HTTPS.
+
+The credential is stored in macOS Keychain. Rosy Bit sends the current system
+prompt and bounded conversation directly to the selected provider, so this mode
+is not local/private inference. The direct request and streamed response still
+appear in Rosy Bit's bounded, memory-only Insights window, but the Authorization
+header and Keychain credential never enter its record. Choosing any installed
+model from the same submenu returns inference to the local server without
+erasing the saved cloud profile. **Forget Cloud Model** removes both its
+metadata and Keychain credential.
+
+### Skills
+
+Open **Skills** to enable or disable **Dictionary**, **Volume Control**,
+**Calculator & Units**, **Timers**, **Battery & System**, **Apps & Finder**,
+**File Search**, and **Reminders** independently. The
+choices persist across launches and apply to Rosy's Ask bar and chat for both
+local and cloud models. They do not rewrite tool schemas sent by an independent
+client to Rosy's OpenAI-compatible endpoint.
+
+Turning a skill off removes its schema and Rosy's deterministic route for that
+capability. Volume Control off also blocks exact set, mute, and unmute commands;
+Timers off blocks creation, listing, and cancellation. Existing timers remain
+scheduled in macOS and can be managed after the skill is enabled again. With
+Apps & Finder off, exact launch/quit/Finder commands are blocked; File Search
+off prevents Spotlight queries. The first Reminders command displays macOS's
+native permission dialog, and disabling the skill never changes existing data.
+With
+all skills off, Rosy omits the complete `tools` and `tool_choice` segment. When
+a local model is running, changing a toggle refreshes the stable prompt prefix
+automatically.
+
+Under **Skills → Tool Routing**, choose exactly one mode:
+
+- **Guided** (default) preserves Bonsai's deterministic fast paths and exposes
+  only read-oriented model tools.
+- **Model-led** exposes additional validated action schemas and enables tools
+  for other local models as well as cloud providers.
+
+Changing modes persists and refreshes the local prompt prefix. Model-led does
+not weaken argument validation or add confirmation turns.
+
 ```
 ● Running — 127.0.0.1:1337
 ──────────────────────────
 Model                    ▸
+Skills                   ▸
 Stop Server
 Ask…                  ⌥Space
 Copy Endpoint URL

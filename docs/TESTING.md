@@ -8,7 +8,7 @@ on explains failures later.
 
 ## Current automated and V1.1 release evidence — 2026-08-31
 
-- `swift test`: **48 tests, 0 failures**; the idempotent Core Audio write check
+- `swift test`: **89 tests, 0 failures**; the idempotent Core Audio write check
   is skipped in ordinary runs and passed separately when explicitly enabled.
 - Universal release build: **x86_64 + arm64**.
 - Strict ad-hoc signature verification: **passed**.
@@ -21,6 +21,8 @@ on explains failures later.
 - Ask bar manually confirmed for streaming output, Markdown, bounded scrolling,
   question selection, temporal context, and the final compact GMT timestamp.
 - Installed-model sizes manually confirmed in the Model submenu.
+- DeepSeek cloud inference and its redacted, memory-only Insights records were
+  confirmed against the live service.
 
 This is release evidence, not permission to delete the checklist: the unchecked
 items are the reproducible regression pass for a future release.
@@ -244,7 +246,76 @@ shows the registration failure there rather than silently ignoring it.
 
 ---
 
-## 7. Still outstanding from earlier
+## 7. Optional cloud model
+
+- [ ] **Model → Cloud Model…** opens a small window with DeepSeek and Custom
+      Provider choices
+- [ ] A DeepSeek key survives relaunch through Keychain while the field itself
+      remains blank and says a key is saved
+- [ ] Saving DeepSeek stops the local server and streamed Ask/chat answers work
+- [ ] Explicit dictionary requests still show the local source entry before the
+      remote model's gloss; current-volume questions still use Core Audio
+- [ ] A wrong API key or provider error shows the provider's useful error text
+- [ ] A custom base URL ending in `/v1` reaches `/v1/chat/completions`; a complete
+      chat-completions URL is left unchanged
+- [ ] HTTP custom endpoints are refused; HTTPS endpoints that need no key work
+      with the key field empty
+- [ ] Choosing an installed model starts Rosy's local server and checks that
+      model in the menu without deleting the saved cloud profile
+- [ ] Installing another local model while cloud is selected does not switch
+      inference away from cloud
+- [ ] Forget Cloud Model removes its configuration and Keychain credential
+- [ ] Direct cloud requests appear in memory-only Insights with provider status,
+      prompt, streamed response/tool call, tokens, and duration
+- [ ] **Inspect response** on a cloud-backed chat answer opens its correlated
+      record; a tool-backed answer selects the newer grounded follow-up
+- [ ] Neither the Keychain credential nor an Authorization header appears in
+      any cloud Insights tab
+
+---
+
+## 8. Skills
+
+- [ ] **Skills** appears immediately below **Model**, with eight independent
+      checked rows and no bulk-disable item
+- [ ] Both choices persist across relaunch and affect local and cloud chats
+- [ ] Disabling Dictionary removes its schema and deterministic lookup route;
+      an ordinary definition question no longer opens a dictionary entry
+- [ ] Disabling Volume Control removes its schema and blocks exact get, set,
+      mute, and unmute routes without changing system volume
+- [ ] Calculator handles `2 + 3 * 4`, `15% of 80`, `500 mL to liters`, and
+      `32 °F to °C`; unsupported syntax produces an error without inference
+- [ ] Battery & System reports plausible battery/charging, power-source,
+      startup-disk, and installed-memory values on both Macs
+- [ ] The first timer requests notification permission once; `Set a tea timer
+      for 10 seconds` rings, survives app relaunch, appears in `Show my timers`,
+      and can be cancelled by name
+- [ ] Disabling Timers blocks creation/list/cancellation but does not silently
+      cancel a notification already scheduled with macOS
+- [ ] `Open Safari`, `Quit Safari`, `Open my Downloads folder`, and `Reveal
+      ~/Desktop/test.txt in Finder` execute only as exact one-line commands
+- [ ] File Search returns no more than twelve existing Spotlight paths and does
+      not treat query punctuation as shell syntax
+- [ ] The first Reminders command requests native permission; create, list,
+      complete, and delete work without a model confirmation turn
+- [ ] With one skill enabled, Insights shows exactly that one tool schema
+- [ ] With all eight skills disabled, Insights contains neither `tools` nor
+      `tool_choice`
+- [ ] Changing a skill while a local model is running refreshes the stable
+      prefix before the next request
+- [ ] **Skills → Tool Routing** presents radio-style Guided / Model-led choices;
+      selecting either unticks the other and persists across relaunch
+- [ ] Guided keeps state-changing schemas out of the prompt; Model-led adds
+      only action schemas whose parent skills are enabled
+- [ ] An unmeasured local model receives no Guided tools but receives enabled
+      tools after explicit Model-led selection
+- [ ] Model-led rejects volume outside 0–100, boolean numeric values, timers
+      beyond seven days, unknown Finder folders, malformed due dates, and extra
+      JSON fields before native state changes
+
+---
+
+## 9. Still outstanding from earlier
 
 - [ ] **The reboot test.** Restart Rosy, log in, wait, then
       `curl -s http://127.0.0.1:1337/health`. This is the "always-on" claim,
@@ -260,7 +331,7 @@ shows the registration failure there rather than silently ignoring it.
 
 ---
 
-## 8. Worth measuring: quantised KV cache
+## 10. Worth measuring: quantised KV cache
 
 Generation reads the whole cache per token — at a 5,000-token context that is
 roughly 560 MB of memory traffic for every token produced, which is the likely
@@ -278,7 +349,7 @@ ones. Quartering the cache quarters that traffic.
 
 ---
 
-## 9. Two slots — does the affinity actually happen?
+## 11. Two slots — does the affinity actually happen?
 
 `parallelSlots` now defaults to 2 so Rosy Bit's own questions and another
 client's requests stop evicting each other's cached prefix. Slots cannot be
@@ -311,7 +382,7 @@ its own requests; the log says whether it got it.
 
 ---
 
-## 10. Unmeasured, if you are curious
+## 12. Unmeasured, if you are curious
 
 - [ ] Whether slots multiply KV memory. Set `parallelSlots` to 4, restart,
       then `ps -o rss= -p $(lsof -ti tcp:11337 -sTCP:LISTEN)`. About 1.3 GB

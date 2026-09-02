@@ -28,5 +28,9 @@
 	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string>Rosy Bit — a tiny always-on local LLM server.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Rosy Bit uses Reminders access only when you ask it to create, list, complete, or delete a reminder.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>Rosy Bit uses Reminders access only when you ask it to create, list, complete, or delete a reminder.</string>
 </dict>
 </plist>

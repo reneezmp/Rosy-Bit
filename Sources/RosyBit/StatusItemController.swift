@@ -53,6 +53,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.syncActivityDot() }
             .store(in: &cancellables)
+        CloudModelStore.shared.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.syncActivityDot() }
+            .store(in: &cancellables)
 
         syncActivityDot()
     }
@@ -60,7 +64,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: - Activity dot
 
     private func syncActivityDot() {
-        setActivity(ServerController.shared.activeRequests > 0)
+        setActivity(
+            ServerController.shared.activeRequests > 0
+                || CloudModelStore.shared.activeRequests > 0)
     }
 
     private func setActivity(_ active: Bool) {
@@ -168,6 +174,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
         menu.addItem(modelMenuItem())
+        menu.addItem(skillsMenuItem())
         if ServerController.shared.canCancelRequests {
             menu.addItem(item("Cancel Request", #selector(cancelRequests)))
         }
@@ -205,6 +212,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// Same information the activity dot carries, spelled out for anyone who
     /// opened the menu to find out what the machine is busy with.
     private var statusLine: String {
+        let cloud = CloudModelStore.shared
+        if cloud.isCloudSelected {
+            if cloud.activeRequests > 0 {
+                return "◐ Working — \(cloud.selectedDescription ?? "cloud model")"
+            }
+            return "☁ Cloud — \(cloud.selectedDescription ?? "not configured")"
+        }
         let server = ServerController.shared
         guard server.state == .running, server.activeRequests > 0 else {
             return server.state.menuTitle
@@ -229,14 +243,65 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 let entry = item(
                     ModelStore.menuTitle(for: url), #selector(selectModel(_:)))
                 entry.representedObject = url
-                entry.state = ModelStore.shared.isSelected(url) ? .on : .off
+                entry.state = !CloudModelStore.shared.isCloudSelected
+                    && ModelStore.shared.isSelected(url) ? .on : .off
                 submenu.addItem(entry)
             }
         }
 
         submenu.addItem(.separator())
+        submenu.addItem(cloudModelsMenuItem())
+        submenu.addItem(.separator())
         submenu.addItem(downloadMenuItem())
+        submenu.addItem(item("Import from Hugging Face…", #selector(showHuggingFaceImport)))
         submenu.addItem(item("Open Models Folder…", #selector(openModelsFolder)))
+        parent.submenu = submenu
+        return parent
+    }
+
+    private func cloudModelsMenuItem() -> NSMenuItem {
+        let parent = NSMenuItem(title: "Cloud Models", action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+        let cloud = CloudModelStore.shared
+
+        if let description = cloud.registeredDescription {
+            let registered = item(description, #selector(selectCloudModel))
+            registered.state = cloud.isCloudSelected ? .on : .off
+            submenu.addItem(registered)
+            submenu.addItem(.separator())
+            submenu.addItem(item("Configure Cloud Model…", #selector(showCloudModel)))
+        } else {
+            submenu.addItem(item("Register Cloud Model…", #selector(showCloudModel)))
+        }
+
+        parent.submenu = submenu
+        return parent
+    }
+
+    private func skillsMenuItem() -> NSMenuItem {
+        let parent = NSMenuItem(title: "Skills", action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+
+        for skill in RosySkill.allCases {
+            let entry = item(skill.title, #selector(toggleSkill(_:)))
+            entry.representedObject = skill.rawValue
+            entry.state = SkillSettings.isEnabled(skill) ? .on : .off
+            submenu.addItem(entry)
+        }
+        submenu.addItem(.separator())
+        let routing = NSMenuItem(title: "Tool Routing", action: nil, keyEquivalent: "")
+        let routingMenu = NSMenu()
+        routingMenu.autoenablesItems = false
+        for mode in SkillSettings.RoutingMode.allCases {
+            let entry = item(mode.title, #selector(selectToolRouting(_:)))
+            entry.representedObject = mode.rawValue
+            entry.state = SkillSettings.routingMode() == mode ? .on : .off
+            routingMenu.addItem(entry)
+        }
+        routing.submenu = routingMenu
+        submenu.addItem(routing)
         parent.submenu = submenu
         return parent
     }
@@ -302,7 +367,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func selectModel(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
 
-        let changed = !ModelStore.shared.isSelected(url)
+        let wasCloudSelected = CloudModelStore.shared.isCloudSelected
+        let changed = wasCloudSelected
+            || !ModelStore.shared.isSelected(url)
+        CloudModelStore.shared.selectLocal()
         ModelStore.shared.select(url)
         guard changed else { return }
 
@@ -310,15 +378,53 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // switching while stopped should not start the server behind the user's
         // back, unless there was nothing to run before.
         let server = ServerController.shared
-        if server.state.isBusy {
+        if wasCloudSelected {
+            server.start()
+        } else if server.state.isBusy {
             server.restart()
         } else if server.state == .noModel {
             server.start()
         }
     }
 
+    @objc private func selectCloudModel() {
+        let cloud = CloudModelStore.shared
+        guard cloud.configuration != nil else {
+            CloudModelWindowController.shared.show()
+            return
+        }
+        guard !cloud.isCloudSelected else { return }
+        cloud.selectCloud()
+        ServerController.shared.stop()
+    }
+
     @objc private func toggleServer() {
         ServerController.shared.toggle()
+    }
+
+    @objc private func toggleSkill(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let skill = RosySkill(rawValue: rawValue) else { return }
+        SkillSettings.setEnabled(!SkillSettings.isEnabled(skill), for: skill)
+
+        // A changed tool block means a changed reusable prefix. Refill it now
+        // when the local runtime is ready; a starting server will perform the
+        // same warm when its health probe succeeds. Cloud APIs need no warm.
+        if !CloudModelStore.shared.isCloudSelected,
+           ServerController.shared.state == .running {
+            Task { @MainActor in ChatClient.warmPrefix() }
+        }
+    }
+
+    @objc private func selectToolRouting(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let mode = SkillSettings.RoutingMode(rawValue: rawValue),
+              mode != SkillSettings.routingMode() else { return }
+        SkillSettings.setRoutingMode(mode)
+        if !CloudModelStore.shared.isCloudSelected,
+           ServerController.shared.state == .running {
+            Task { @MainActor in ChatClient.warmPrefix() }
+        }
     }
 
     @objc private func cancelRequests() {
@@ -364,6 +470,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func showModelSetup() {
         ModelSetupWindowController.shared.show()
+    }
+
+    @objc private func showCloudModel() {
+        CloudModelWindowController.shared.show()
+    }
+
+    @objc private func showHuggingFaceImport() {
+        HuggingFaceImportWindowController.shared.show()
     }
 
     @objc private func downloadModel(_ sender: NSMenuItem) {

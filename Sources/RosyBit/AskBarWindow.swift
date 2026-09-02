@@ -53,10 +53,17 @@ final class AskBarModel: ObservableObject {
 
         // Say why nothing will happen, rather than letting a refused connection
         // read as the model declining to answer.
-        let server = ServerController.shared
-        guard server.state == .running || server.state == .starting else {
-            errorMessage = server.state.menuTitle
-            return
+        if CloudModelStore.shared.isCloudSelected {
+            if let readinessError = CloudModelStore.shared.readinessError {
+                errorMessage = readinessError.localizedDescription
+                return
+            }
+        } else {
+            let server = ServerController.shared
+            guard server.state == .running || server.state == .starting else {
+                errorMessage = server.state.menuTitle
+                return
+            }
         }
 
         isStreaming = true
