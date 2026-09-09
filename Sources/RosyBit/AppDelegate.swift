@@ -5,6 +5,8 @@ import UserNotifications
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.mainMenu = Self.mainMenu()
+
         // Timers should still announce themselves while Rosy's menu or chat is
         // active; without a delegate macOS suppresses foreground presentation.
         UNUserNotificationCenter.current().delegate = self
@@ -43,6 +45,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !CloudModelStore.shared.isCloudSelected {
             ServerController.shared.start()
         }
+    }
+
+    @objc func openSettings() {
+        SettingsWindowController.shared.show()
+    }
+
+    /// Never drawn — the app is LSUIElement — but its key equivalents are
+    /// dispatched to the key window, which is the only reason editing
+    /// shortcuts work inside Rosy's text fields. Items carry no target so
+    /// they travel the responder chain to whatever field is focused.
+    private static func mainMenu() -> NSMenu {
+        let menu = NSMenu()
+
+        let appItem = NSMenuItem()
+        let appMenu = NSMenu()
+        appMenu.addItem(
+            withTitle: "Settings…",
+            action: #selector(AppDelegate.openSettings),
+            keyEquivalent: ",")
+        appMenu.addItem(.separator())
+        appMenu.addItem(
+            withTitle: "Quit Rosy Bit",
+            action: #selector(NSApplication.terminate(_:)),
+            keyEquivalent: "q")
+        appItem.submenu = appMenu
+        menu.addItem(appItem)
+
+        let editItem = NSMenuItem()
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        editMenu.addItem(.separator())
+        editMenu.addItem(
+            withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(
+            withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(
+            withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(.separator())
+        editMenu.addItem(
+            withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = editMenu
+        menu.addItem(editItem)
+
+        return menu
     }
 
     func applicationWillTerminate(_ notification: Notification) {
