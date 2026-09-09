@@ -54,10 +54,15 @@ Rosy Bit includes:
 - native Apple Reminders listing and exact create, complete, and delete commands;
 - an explicitly selected cloud-model profile for DeepSeek or a custom
   OpenAI-compatible HTTPS provider, with credentials stored in macOS Keychain;
-- a **Skills** submenu with eight persistent, independent capability switches;
+- an off-by-default Web Search skill reaching Kagi for live search and page
+  reading—the only capability that leaves this Mac—with its token in its own
+  Keychain entry and the per-call cost stated plainly in Settings;
+- a **Skills** submenu with nine persistent, independent capability switches;
 - mutually exclusive **Guided** and **Model-led** tool routing: Bonsai-friendly
-  deterministic fast paths or fuller schemas for capable local/cloud models,
-  with the same strict native validation in both modes;
+  deterministic fast paths, always one tool per answer, or fuller schemas for
+  capable local/cloud models that can chain calls within one answer—search the
+  web, then read the most promising result—up to a configurable per-answer
+  limit, with the same strict native validation in both modes;
 - an in-memory Insights window for prompts, responses, parameters, and timing;
 - settings for ports, context, threads, slots, KV cache, sampling, CORS, the
   system prompt, and the Ask shortcut;
@@ -102,12 +107,26 @@ that let their users choose where inference happens.
   conversation and system prompt are sent directly to that provider; the API
   key stays in this Mac's Keychain. Requests and streamed responses still enter
   the same bounded, memory-only Insights window without recording that key.
+- Web Search is off by default and is the only skill whose capability leaves
+  the machine; every other skill reads something already on this Mac. Turning
+  it on takes a separate Kagi API token, kept in its own Keychain entry apart
+  from any cloud-inference credential, so forgetting one can never silently
+  disarm the other; the token never reaches UserDefaults, Insights, or a log.
+  Kagi bills roughly $12 per thousand searches and $4 per thousand pages read.
+  Web search is never automatic or speculative—no pre-fetch, no retry—but it
+  is no longer capped at one call: Model-led routing can follow a search with
+  a page fetch inside a single answer, bounded by Settings → Tool Calls' own
+  per-answer limit (default 3). Search and page results reach the model
+  fenced between explicit untrusted-content markers, because the text was
+  written by strangers and may carry instructions of its own; Rosy still has
+  no shell or filesystem write, so a hostile page's blast radius is a wrong
+  answer whose source stays visible.
 - Rosy Bit gives the model no shell or file access. Native calls are bounded,
   allowlisted, and strictly validated. Exact one-line volume changes and timer
   creation/cancellation are parsed by Rosy Bit itself, outside the model; their
   model-facing schemas remain read-only.
 - Turning a skill off removes its schema and deterministic routes. With all
-  all eight off, Rosy sends no `tools` or `tool_choice` fields at all. Existing
+  nine off, Rosy sends no `tools` or `tool_choice` fields at all. Existing
   timers already handed to macOS continue to ring, but the disabled skill can
   neither create nor operate on them.
 

@@ -285,9 +285,17 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         submenu.autoenablesItems = false
 
         for skill in RosySkill.allCases {
-            let entry = item(skill.title, #selector(toggleSkill(_:)))
+            let enabled = SkillSettings.isEnabled(skill)
+            // A skill that is on but cannot work should say so here rather
+            // than in an error the user only meets after asking a question.
+            let needsKey = skill == .webSearch && enabled && !KagiCredentialStore.hasKey
+            let title = needsKey ? "\(skill.title) — needs a key" : skill.title
+            let entry = item(title, #selector(toggleSkill(_:)))
             entry.representedObject = skill.rawValue
-            entry.state = SkillSettings.isEnabled(skill) ? .on : .off
+            entry.state = enabled ? .on : .off
+            if needsKey {
+                entry.toolTip = "Save a Kagi API token in Settings → Web Search."
+            }
             submenu.addItem(entry)
         }
         submenu.addItem(.separator())

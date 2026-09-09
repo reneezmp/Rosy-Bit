@@ -14,6 +14,7 @@ enum RosySkill: String, CaseIterable, Identifiable {
     case appsFinder
     case fileSearch
     case reminders
+    case webSearch
 
     var id: String { rawValue }
 
@@ -27,7 +28,16 @@ enum RosySkill: String, CaseIterable, Identifiable {
         case .appsFinder: return "Apps & Finder"
         case .fileSearch: return "File Search"
         case .reminders: return "Reminders"
+        case .webSearch: return "Web Search (Kagi)"
         }
+    }
+
+    /// Every native skill reads this Mac and defaults to on. Web Search does
+    /// not: it is the only capability that sends a question off the machine,
+    /// to a third party, for money. A capability with that shape is opted
+    /// into deliberately or it is not enabled at all.
+    var defaultsToEnabled: Bool {
+        self != .webSearch
     }
 
     var defaultsKey: String {
@@ -40,6 +50,7 @@ enum RosySkill: String, CaseIterable, Identifiable {
         case .appsFinder: return "appsFinderSkillEnabled"
         case .fileSearch: return "fileSearchSkillEnabled"
         case .reminders: return "remindersSkillEnabled"
+        case .webSearch: return "webSearchSkillEnabled"
         }
     }
 }
@@ -71,7 +82,7 @@ enum SkillSettings {
         _ skill: RosySkill,
         defaults: UserDefaults = .standard
     ) -> Bool {
-        (defaults.object(forKey: skill.defaultsKey) as? Bool) ?? true
+        (defaults.object(forKey: skill.defaultsKey) as? Bool) ?? skill.defaultsToEnabled
     }
 
     static func setEnabled(
@@ -97,6 +108,7 @@ enum SkillSettings {
         appsFinderEnabled: Bool? = nil,
         fileSearchEnabled: Bool? = nil,
         remindersEnabled: Bool? = nil,
+        webSearchEnabled: Bool? = nil,
         routingMode selectedRoutingMode: RoutingMode? = nil
     ) -> [[String: Any]] {
         let mode = selectedRoutingMode ?? routingMode()
@@ -129,6 +141,12 @@ enum SkillSettings {
         }
         if remindersEnabled ?? isEnabled(.reminders) {
             result += RemindersTool.schema
+        }
+        // Advertised only when a key actually exists. A schema Rosy cannot
+        // honour costs prefix tokens on every request and invites the model
+        // to promise a search that will only ever return an error.
+        if webSearchEnabled ?? (isEnabled(.webSearch) && KagiCredentialStore.hasKey) {
+            result += KagiTool.schema
         }
         if mode == .modelLed {
             result += ModelLedActionTool.schemas(

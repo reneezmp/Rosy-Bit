@@ -118,15 +118,19 @@ enum CloudCredentialStore {
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
-        let attributes: [String: Any] = [kSecValueData as String: data]
-        let update = SecItemUpdate(identity as CFDictionary, attributes as CFDictionary)
-        if update == errSecSuccess { return }
-        guard update == errSecItemNotFound else { throw CloudProviderError.keychain(update) }
+        var attributes = identity
+        attributes[kSecValueData as String] = data
+        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
 
-        var addition = identity
-        addition[kSecValueData as String] = data
-        addition[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        let status = SecItemAdd(addition as CFDictionary, nil)
+        // Add first, and replace on collision rather than updating in place —
+        // `SecItemUpdate` must open the existing item, which asks macOS for a
+        // permission an ad-hoc-signed build loses every time it is rebuilt.
+        // See the matching note in `KagiCredentialStore.save`.
+        var status = SecItemAdd(attributes as CFDictionary, nil)
+        if status == errSecDuplicateItem {
+            SecItemDelete(identity as CFDictionary)
+            status = SecItemAdd(attributes as CFDictionary, nil)
+        }
         guard status == errSecSuccess else { throw CloudProviderError.keychain(status) }
     }
 
@@ -270,6 +274,12 @@ enum CloudRequestBuilder {
             // be replayed. Rosy deliberately stores only visible conversation,
             // so the first version disables thinking rather than silently
             // constructing an invalid or privacy-surprising transcript.
+            // `thinking` is a documented DeepSeek field, alongside
+            // `reasoning_effort`. Note the related constraint before changing
+            // anything here: while thinking is active, V4 rejects
+            // `tool_choice: "required"` and named-function choices with HTTP
+            // 400. Rosy only ever sends "auto" or "none", both of which are
+            // accepted, and that is not an accident.
             result["thinking"] = ["type": "disabled"]
         } else {
             result["temperature"] = Config.temperature

@@ -55,13 +55,16 @@ struct ChatClient {
     enum ChatError: LocalizedError {
         case notConfigured
         case http(Int)
-        case multipleToolCalls
+        case toolCallLimitIgnored(Int)
 
         var errorDescription: String? {
             switch self {
             case .notConfigured: return "The endpoint URL could not be built."
             case .http(let status): return "The server answered with HTTP \(status)."
-            case .multipleToolCalls: return "Rosy requested more than one tool at once."
+            case .toolCallLimitIgnored(let limit):
+                let plural = limit == 1 ? "" : "s"
+                return "Rosy used her limit of \(limit) tool call\(plural) for one answer, "
+                    + "and the model asked for another instead of answering."
             }
         }
     }
@@ -85,12 +88,22 @@ struct ChatClient {
         }
     }
 
-    private struct ExecutedTool {
+    struct ExecutedTool {
         let id: String
         let name: String
         let rawArguments: String
         let observation: String
         let displayedContent: String?
+    }
+
+    /// A call the model asked for that Rosy did not run, because the turn's
+    /// budget was already spent. It still has to appear in the transcript: an
+    /// OpenAI-shaped history where an assistant `tool_calls` entry has no
+    /// matching `tool` reply is malformed, and providers reject it.
+    struct RefusedTool {
+        let id: String
+        let name: String
+        let rawArguments: String
     }
 
     private struct Destination {
@@ -155,6 +168,34 @@ struct ChatClient {
                     await MainActor.run { onCompletion(.failure(error)) }
                 }
                 return
+            }
+
+            // Web requests route like the dictionary rather than like the
+            // local skills: retrieval is deterministic, but search results are
+            // evidence, not an answer, so the grounded second pass below still
+            // happens. Placed ahead of File Search so an explicit request for
+            // the web is never answered by the Spotlight index.
+            var routedWebCall: KagiTool.Call?
+            if let url = latestUserMessage.flatMap(KagiTool.explicitFetchURL) {
+                routedWebCall = .fetch(url)
+            } else if let query = latestUserMessage.flatMap(KagiTool.explicitSearchQuery) {
+                routedWebCall = .search(query)
+            }
+            if routedWebCall != nil {
+                guard SkillSettings.isEnabled(.webSearch) else {
+                    await completeDirectly(
+                        "Web Search is turned off in Skills.",
+                        onDelta: onDelta,
+                        onCompletion: onCompletion)
+                    return
+                }
+                guard KagiCredentialStore.hasKey else {
+                    await completeDirectly(
+                        "Web Search needs a Kagi API key. Add one in Settings → Web Search.",
+                        onDelta: onDelta,
+                        onCompletion: onCompletion)
+                    return
+                }
             }
 
             if let query = latestUserMessage.flatMap(FileSearchTool.explicitFilenameQuery) {
@@ -316,107 +357,109 @@ struct ChatClient {
                     }
                     : nil
 
-                let wireMessages: [[String: Any]] = messages.map {
+                // The conversation as it will be sent, grown in place as
+                // tools run. Each round appends the assistant turn that asked
+                // for a tool and the result it was given.
+                var conversation: [[String: Any]] = messages.map {
                     ["role": $0.role, "content": $0.content]
                 }
-                var payload = requestPayload(
-                    destination: destination,
-                    messages: wireMessages,
-                    tools: schemas,
-                    toolChoice: schemas.isEmpty ? nil : "auto")
                 // Off by default: `id_slot` is not honoured on this endpoint.
                 // See Config.internalSlot. Kept as a setting in case upstream
                 // ever starts reading it.
                 let slot = Config.internalSlot
-                if cloud == nil, slot >= 0 {
-                    payload["id_slot"] = slot
-                }
-                var streams: [StreamResult] = []
-                var executed: ExecutedTool?
-                var routingReasoning: String?
 
-                if let routedDictionaryTerm {
+                let budget = toolCallBudget()
+                var spent = 0
+                var streams: [StreamResult] = []
+
+                if let routedWebCall {
+                    // Same allowlisted execution the model-routed path uses,
+                    // minus the generation that would have decided to spend
+                    // money Renée had already asked to spend.
+                    let executed = try await executeTool(
+                        id: "\(routedWebCall.toolName)-route",
+                        name: routedWebCall.toolName,
+                        arguments: routedWebCall.rawArguments)
+                    await show(executed, onDelta: onDelta)
+                    conversation += toolTurn([executed], limit: budget)
+                    spent += 1
+                } else if let routedDictionaryTerm {
                     // An explicit definition request needs no probabilistic
                     // routing pass. Execute the same allowlisted tool locally,
                     // then give the model only the grounded presentation pass.
                     let call = DictionaryTool.routedCall(term: routedDictionaryTerm)
-                    executed = try await executeTool(
+                    let executed = try await executeTool(
                         id: call.id,
                         name: DictionaryTool.name,
                         arguments: call.rawArguments)
-                } else {
-                    let first = try await stream(
+                    await show(executed, onDelta: onDelta)
+                    conversation += toolTurn([executed], limit: budget)
+                    spent += 1
+                }
+
+                while true {
+                    if Task.isCancelled { return }
+                    // With the budget gone the model is asked to answer, not to
+                    // plan again. A runtime that ignores `tool_choice: none` is
+                    // refused below rather than allowed to keep spending.
+                    let exhausted = spent >= budget
+                    var payload = requestPayload(
+                        destination: destination,
+                        messages: conversation,
+                        tools: schemas,
+                        toolChoice: schemas.isEmpty ? nil : (exhausted ? "none" : "auto"))
+                    if cloud == nil, slot >= 0 {
+                        payload["id_slot"] = slot
+                    }
+
+                    let result = try await stream(
                         payload: payload,
                         request: request,
                         providerName: destination.providerName,
                         messageID: messageID,
                         onDelta: onDelta)
-                    streams.append(first)
-                    routingReasoning = first.reasoningContent.isEmpty
-                        ? nil : first.reasoningContent
-                    if !first.toolNames.isEmpty {
-                        guard !schemas.isEmpty else {
-                            throw DictionaryTool.ToolError.unavailableForModel
-                        }
-                        guard first.toolNames.count == 1,
-                              let index = first.toolNames.keys.first else {
-                            throw ChatError.multipleToolCalls
-                        }
-                        executed = try await executeTool(
-                            id: first.toolIDs[index],
-                            name: first.toolNames[index],
-                            arguments: first.toolArguments[index] ?? "")
-                    }
-                }
+                    streams.append(result)
 
-                if let executed {
-                    if let displayedContent = executed.displayedContent {
-                        await MainActor.run { onDelta(displayedContent) }
+                    guard !result.toolNames.isEmpty else { break }
+                    guard !schemas.isEmpty else {
+                        throw DictionaryTool.ToolError.unavailableForModel
+                    }
+                    guard !exhausted else { throw ChatError.toolCallLimitIgnored(budget) }
+
+                    // One assistant message may carry several calls at once.
+                    // They are taken in the order the stream assigned them, so
+                    // the replayed transcript matches what the model wrote.
+                    let indices = result.toolNames.keys.sorted()
+                    let affordable = min(indices.count, budget - spent)
+
+                    var executedTools: [ExecutedTool] = []
+                    for index in indices.prefix(affordable) {
+                        let executed = try await executeTool(
+                            id: result.toolIDs[index],
+                            name: result.toolNames[index],
+                            arguments: result.toolArguments[index] ?? "")
+                        if Task.isCancelled { return }
+                        await show(
+                            executed,
+                            afterProse: !result.content
+                                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                            onDelta: onDelta)
+                        executedTools.append(executed)
                     }
 
-                    var followUpMessages: [[String: Any]] = messages.map {
-                        ["role": $0.role, "content": $0.content]
-                    }
-                    var assistantToolCall: [String: Any] = [
-                        "role": "assistant",
-                        "content": NSNull(),
-                        "tool_calls": [[
-                            "id": executed.id,
-                            "type": "function",
-                            "function": [
-                                "name": executed.name,
-                                "arguments": executed.rawArguments
-                            ]
-                        ]]
-                    ]
-                    if let routingReasoning {
-                        assistantToolCall["reasoning_content"] = routingReasoning
-                    }
-                    followUpMessages.append(assistantToolCall)
-                    followUpMessages.append([
-                        "role": "tool",
-                        "tool_call_id": executed.id,
-                        "content": executed.observation
-                    ])
-
-                    let followUp = requestPayload(
-                        destination: destination,
-                        messages: followUpMessages,
-                        tools: schemas,
-                        toolChoice: "none")
-                    let final = try await stream(
-                        payload: followUp,
-                        request: request,
-                        providerName: destination.providerName,
-                        messageID: messageID,
-                        onDelta: onDelta)
-                    streams.append(final)
-                    if !final.toolNames.isEmpty || !final.toolArguments.isEmpty {
-                        // One retrieval and one grounded answer is the whole
-                        // loop. Even if a runtime ignores `tool_choice: none`,
-                        // Rosy Bit never executes a second request.
-                        throw ChatError.multipleToolCalls
-                    }
+                    conversation += toolTurn(
+                        executedTools,
+                        refused: indices.dropFirst(affordable).map {
+                            RefusedTool(
+                                id: result.toolIDs[$0] ?? "tool-call-\($0)",
+                                name: result.toolNames[$0] ?? "",
+                                rawArguments: result.toolArguments[$0] ?? "")
+                        },
+                        limit: budget,
+                        reasoning: result.reasoningContent.isEmpty
+                            ? nil : result.reasoningContent,
+                        content: result.content)
+                    spent += executedTools.count
                 }
 
                 if Task.isCancelled { return }
@@ -438,6 +481,130 @@ struct ChatClient {
         guard !Task.isCancelled else { return }
         onDelta(response)
         onCompletion(.success(.unavailable))
+    }
+
+    /// How many tools one answer may use.
+    ///
+    /// Guided routing keeps its one-retrieval contract whatever the setting
+    /// says: that is the shape Bonsai 1.7B Q1_0 was measured on, and a 1-bit
+    /// model chaining tools unsupervised is not something this project has
+    /// evidence for. Model-led is the explicit opt-in to a chain, and this
+    /// number is the only thing standing between a confused model and eight
+    /// paid searches.
+    static func toolCallBudget(
+        mode: SkillSettings.RoutingMode? = nil,
+        configured: Int? = nil
+    ) -> Int {
+        let mode = mode ?? SkillSettings.routingMode()
+        guard mode == .modelLed else { return 1 }
+        return min(max(configured ?? Config.maxToolCalls, 1), 8)
+    }
+
+    /// Anything a tool wants the user to see — a dictionary entry, a list of
+    /// search results — goes out before the model's own words, so grounding is
+    /// visible beside the gloss rather than replaced by it.
+    /// DeepSeek's V4 models intermittently emit their internal tool-call
+    /// markup — `<｜DSML｜>` wrapping `invoke`/`parameter` tags — as ordinary
+    /// assistant *content* instead of a structured `tool_calls` field. It is
+    /// an open fault on DeepSeek's own hosted API, reported at roughly one
+    /// turn in ten, and there is nothing in it a reader can use.
+    ///
+    /// Rosy notices it and stops relaying it. She deliberately does **not**
+    /// parse it back into a call to run. Reconstructing an executable action
+    /// out of free-form text is the one thing this project refuses outright,
+    /// and it would be worse here than usual: tool results carry untrusted web
+    /// content, so any page that talked the model into echoing this shape
+    /// would become an action Rosy performed. A missed tool call costs one
+    /// retyped question. A forged one costs considerably more.
+    static func leakedToolCallMarker(in text: String) -> Range<String.Index>? {
+        ["<\u{FF5C}DSML\u{FF5C}", "<|DSML|", "<\u{FF5C}tool\u{2581}calls\u{2581}begin\u{FF5C}"]
+            .compactMap { text.range(of: $0) }
+            .min { $0.lowerBound < $1.lowerBound }
+    }
+
+    static let leakedToolCallNotice = """
+        \n\n*The model returned a tool call as plain text instead of a structured one, \
+        so Rosy stopped relaying it and did not run it. This is a known intermittent \
+        DeepSeek V4 fault, not a fault in the request — asking again usually works.*
+        """
+
+    private static func show(
+        _ executed: ExecutedTool,
+        afterProse: Bool = false,
+        onDelta: @escaping (String) -> Void
+    ) async {
+        guard let displayed = executed.displayedContent else { return }
+        // A model usually says something before it reaches for a tool, and
+        // that text has already been streamed. Without a break the retrieved
+        // block is welded onto the end of it and its first Markdown heading
+        // never starts a line — "…for you. 💙### Web search: …".
+        let separated = afterProse ? "\n\n" + displayed : displayed
+        await MainActor.run { onDelta(separated) }
+    }
+
+    /// One assistant turn and its results, in the shape the API expects: a
+    /// single assistant message listing every call, then one `tool` message
+    /// per call, in the same order.
+    ///
+    /// Executed calls carry the arguments Rosy *validated*, not the ones the
+    /// model wrote, so nothing rejected survives into the replayed history.
+    /// Refused calls have never been validated, so their arguments are echoed
+    /// back capped — the model wrote them, and it is being told they were not
+    /// run and why.
+    static func toolTurn(
+        _ executed: [ExecutedTool],
+        refused: [RefusedTool] = [],
+        limit: Int,
+        reasoning: String? = nil,
+        content: String = ""
+    ) -> [[String: Any]] {
+        guard !executed.isEmpty || !refused.isEmpty else { return [] }
+
+        var calls: [[String: Any]] = executed.map { tool in
+            [
+                "id": tool.id,
+                "type": "function",
+                "function": ["name": tool.name, "arguments": tool.rawArguments],
+            ]
+        }
+        calls += refused.map { tool in
+            [
+                "id": tool.id,
+                "type": "function",
+                "function": [
+                    "name": tool.name,
+                    "arguments": String(tool.rawArguments.prefix(2_000)),
+                ],
+            ]
+        }
+
+        // A model often says something before it reaches for a tool — "let me
+        // look that up" — and that text has already been streamed to the user.
+        // Replaying the turn as empty tells the model it said nothing, which
+        // costs it the thread of its own reasoning on the next round. Keep the
+        // words; fall back to null only when there genuinely were none.
+        let spoken = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        var assistant: [String: Any] = [
+            "role": "assistant",
+            "content": spoken.isEmpty ? NSNull() : spoken,
+            "tool_calls": calls,
+        ]
+        if let reasoning { assistant["reasoning_content"] = reasoning }
+
+        var turn: [[String: Any]] = [assistant]
+        turn += executed.map { tool in
+            ["role": "tool", "tool_call_id": tool.id, "content": tool.observation]
+        }
+        let plural = limit == 1 ? "" : "s"
+        turn += refused.map { tool in
+            [
+                "role": "tool",
+                "tool_call_id": tool.id,
+                "content": "Not run. Rosy Bit allows \(limit) tool call\(plural) for one "
+                    + "answer and that is already spent. Answer with what you have.",
+            ]
+        }
+        return turn
     }
 
     private static func destination(
@@ -613,6 +780,15 @@ struct ChatClient {
                 rawArguments: call.rawArguments,
                 observation: try await RemindersTool.observation(),
                 displayedContent: nil)
+        case KagiTool.searchName, KagiTool.fetchName:
+            let parsed = try KagiTool.parse(id: id, name: name, arguments: arguments)
+            let outcome = try await KagiTool.execute(parsed.call)
+            return ExecutedTool(
+                id: parsed.id,
+                name: parsed.call.toolName,
+                rawArguments: parsed.call.rawArguments,
+                observation: outcome.observation,
+                displayedContent: outcome.displayed)
         case ModelLedActionTool.volumeName,
              ModelLedActionTool.timerName,
              ModelLedActionTool.appsFinderName,
@@ -681,6 +857,9 @@ struct ChatClient {
             }
 
             var result = StreamResult(startedAt: startedAt, completedAt: startedAt)
+            // Set once the reply turns into raw tool-call markup; see
+            // `leakedToolCallMarker`.
+            var leakingToolCall = false
             for try await line in bytes.lines {
                 if Task.isCancelled { throw CancellationError() }
                 if providerName != nil {
@@ -710,7 +889,24 @@ struct ChatClient {
                 if let content = delta["content"] as? String, !content.isEmpty {
                     if result.firstTokenAt == nil { result.firstTokenAt = Date() }
                     result.content += content
-                    await MainActor.run { onDelta(content) }
+                    // The whole reply is still recorded in Insights; only the
+                    // relaying to the reader stops, so nothing is hidden from
+                    // the person trying to work out what happened.
+                    if leakingToolCall {
+                        // nothing more of this reply reaches the user
+                    } else if let marker = Self.leakedToolCallMarker(in: result.content) {
+                        leakingToolCall = true
+                        let accumulated = result.content
+                        let markerOffset = accumulated.distance(
+                            from: accumulated.startIndex, to: marker.lowerBound)
+                        let alreadySent = accumulated.count - content.count
+                        let visible = String(content.prefix(max(0, markerOffset - alreadySent)))
+                        await MainActor.run {
+                            onDelta(visible + Self.leakedToolCallNotice)
+                        }
+                    } else {
+                        await MainActor.run { onDelta(content) }
+                    }
                 }
 
                 if let reasoning = delta["reasoning_content"] as? String,

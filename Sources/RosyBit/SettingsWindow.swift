@@ -31,6 +31,10 @@ struct SettingsValues: Equatable {
     var hotKeyCode = 49
     var hotKeyModifiers = 2048
 
+    var maxToolCalls = 3
+    var kagiResultLimit = Config.Kagi.defaultResultLimit
+    var kagiPageCharacters = Config.Kagi.defaultPageCharacters
+
     /// llama-server takes these as launch arguments, so changing one means
     /// restarting the child and reloading the model. The rest — the system
     /// prompt, the shortcut, how many requests Insights keeps — apply live, and
@@ -62,6 +66,14 @@ final class SettingsModel: ObservableObject {
     @Published var values = SettingsValues()
     @Published private(set) var savedNotice: String?
 
+    /// The Kagi key never joins `SettingsValues`. That struct is compared,
+    /// copied, and held for the lifetime of the window to drive the Apply
+    /// button; a secret has no business living in a diff. It is typed, saved
+    /// to Keychain by an explicit button, and cleared from memory at once.
+    @Published var kagiKeyInput = ""
+    @Published private(set) var kagiKeyStored = false
+    @Published private(set) var kagiKeyNotice: String?
+
     private var saved = SettingsValues()
     private var noticeTask: Task<Void, Never>?
 
@@ -90,10 +102,40 @@ final class SettingsModel: ObservableObject {
         loaded.askBarEnabled = Config.askBarEnabled
         loaded.hotKeyCode = Config.hotKeyCode
         loaded.hotKeyModifiers = Config.hotKeyModifiers
+        loaded.maxToolCalls = Config.maxToolCalls
+        loaded.kagiResultLimit = Config.Kagi.resultLimit
+        loaded.kagiPageCharacters = Config.Kagi.pageCharacters
 
         values = loaded
         saved = loaded
         savedNotice = nil
+        kagiKeyInput = ""
+        kagiKeyStored = KagiCredentialStore.hasKey
+        kagiKeyNotice = nil
+    }
+
+    func saveKagiKey() {
+        let candidate = kagiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !candidate.isEmpty else { return }
+        do {
+            try KagiCredentialStore.save(candidate)
+            kagiKeyInput = ""
+            kagiKeyStored = true
+            kagiKeyNotice = "Saved to Keychain."
+            // A key arriving changes the advertised schema, so the prefix
+            // llama-server has already warmed is now the wrong one.
+            Task { @MainActor in ChatClient.warmPrefix() }
+        } catch {
+            kagiKeyNotice = error.localizedDescription
+        }
+    }
+
+    func removeKagiKey() {
+        KagiCredentialStore.delete()
+        kagiKeyInput = ""
+        kagiKeyStored = false
+        kagiKeyNotice = "Removed from Keychain."
+        Task { @MainActor in ChatClient.warmPrefix() }
     }
 
     /// Why the settings cannot be applied, or nil when they can.
@@ -142,6 +184,9 @@ final class SettingsModel: ObservableObject {
         defaults.set(values.askBarEnabled, forKey: "askBarEnabled")
         defaults.set(values.hotKeyCode, forKey: "hotKeyCode")
         defaults.set(values.hotKeyModifiers, forKey: "hotKeyModifiers")
+        defaults.set(values.maxToolCalls, forKey: "maxToolCalls")
+        defaults.set(values.kagiResultLimit, forKey: "kagiResultLimit")
+        defaults.set(values.kagiPageCharacters, forKey: "kagiPageCharacters")
 
         setOrRemove(values.kvCacheType, forKey: "kvCacheType")
         setOrRemove(values.flashAttention, forKey: "flashAttention")
@@ -179,6 +224,7 @@ final class SettingsModel: ObservableObject {
             "temperature", "topK", "topP", "repeatPenalty", "presencePenalty",
             "systemPrompt", "corsOrigins", "port", "insightsEnabled", "upstreamPort",
             "insightsCapacity", "askBarEnabled", "hotKeyCode", "hotKeyModifiers",
+            "maxToolCalls", "kagiResultLimit", "kagiPageCharacters",
         ] {
             defaults.removeObject(forKey: key)
         }
@@ -287,6 +333,8 @@ struct SettingsView: View {
                 samplingSection
                 systemPromptSection
                 askBarSection
+                toolCallsSection
+                webSearchSection
                 performanceSection
                 endpointSection
                 insightsSection
@@ -392,6 +440,92 @@ struct SettingsView: View {
                         .foregroundStyle(.orange)
                 }
             }
+        }
+    }
+
+    /// Kagi is the only setting here that spends money and the only one that
+    /// leaves the machine, so the section says both out loud rather than
+    /// hiding them behind a friendly toggle.
+    /// The budget lives here rather than in the Skills menu because it is a
+    /// number, and because it governs cost and patience rather than consent.
+    /// Which capabilities exist at all stays a menu-bar decision.
+    private var toolCallsSection: some View {
+        Section("Tool Calls") {
+            Stepper("Limit per answer: \(model.values.maxToolCalls)",
+                    value: $model.values.maxToolCalls, in: 1...8)
+
+            Text("How many tools Rosy may use while composing one answer in "
+                 + "Model-led routing. More than one lets her chain them — search the "
+                 + "web, then read the most promising result — instead of stopping "
+                 + "after the first.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Text("Guided routing always uses exactly one, whatever this says. That is "
+                 + "the shape Bonsai was measured on, and a 1-bit model chaining tools "
+                 + "unsupervised is not something this project has evidence for.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if model.values.maxToolCalls > 1 {
+                Label(
+                    "Every extra call is another full generation on this Mac's cores — "
+                        + "and with Web Search on, possibly another billed Kagi request.",
+                    systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var webSearchSection: some View {
+        Section("Web Search") {
+            Text("Rosy can search the web through Kagi, a paid search API with no "
+                 + "advertising and no result tracking. Nothing leaves this Mac until the "
+                 + "Web Search skill is switched on in the menu bar and a key is saved here.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 8) {
+                SecureField(
+                    model.kagiKeyStored ? "Saved in Keychain" : "Paste your Kagi API token",
+                    text: $model.kagiKeyInput)
+                    .textFieldStyle(.roundedBorder)
+                Button("Save") { model.saveKagiKey() }
+                    .disabled(model.kagiKeyInput.trimmingCharacters(
+                        in: .whitespacesAndNewlines).isEmpty)
+                if model.kagiKeyStored {
+                    Button("Remove", role: .destructive) { model.removeKagiKey() }
+                }
+            }
+
+            if let notice = model.kagiKeyNotice {
+                Label(notice, systemImage: "key.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Text("The token is written straight to this Mac's Keychain — never to Rosy "
+                 + "Bit's preferences, never to Insights, and never into a log. Kagi "
+                 + "issues one at kagi.com/api/keys.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Stepper("Results per search: \(model.values.kagiResultLimit)",
+                    value: $model.values.kagiResultLimit, in: 1...10)
+            Stepper("Page text kept: \(model.values.kagiPageCharacters) characters",
+                    value: $model.values.kagiPageCharacters, in: 500...12000, step: 500)
+            Text("A search is one billed call whatever these are set to, so they are "
+                 + "about Rosy's context rather than the bill: a 2,048-token model that "
+                 + "reads a whole article has no room left to answer about it.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Text("Kagi charges roughly $12 per thousand searches and $4 per thousand "
+                 + "pages read. Rosy makes at most one call per question, never "
+                 + "speculatively and never as a retry.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 

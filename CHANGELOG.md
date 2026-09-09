@@ -21,8 +21,36 @@ records user-visible changes; the detailed engineering history remains in Git.
   Model-led exposes validated action schemas for capable local/cloud models and
   explicitly enables tool calling for otherwise-unmeasured local models.
 - Model-led volume, timer, Apps/Finder, and Reminders actions reuse Rosy's
-  native allowlists and bounds, execute at most once per turn, and require no
-  extra confirmation exchange.
+  native allowlists and bounds and require no extra confirmation exchange.
+- Model-led routing can now chain tool calls within one answer instead of
+  stopping after the first — search the web, then read the most promising
+  result, for example. The loop streams, executes whatever the model asked
+  for, appends the result, and streams again until the model answers or the
+  budget runs out. Guided routing is unchanged and still uses exactly one
+  tool call, whatever the setting says; that is the shape Bonsai 1.7B Q1_0
+  was measured on, and a 1-bit model chaining tools unsupervised is not
+  something this project has evidence for.
+- Added **Settings → Tool Calls → "Limit per answer"**, a stepper from 1 to
+  8 with a default of 3, backed by the `maxToolCalls` default. It lives in
+  Settings rather than the Skills menu because it governs cost and patience
+  rather than consent — which capabilities exist at all stays a menu-bar
+  decision. Every extra call is another full generation on this fanless
+  two-core Mac and, with Web Search enabled, possibly another billed Kagi
+  request; Settings states this plainly.
+- One assistant message can now carry several tool calls at once; Rosy
+  previously refused these outright. All the calls in a message share one
+  assistant turn and count against the same budget, and each still gets its
+  own validated execution and its own reply.
+- A call that would exceed the remaining budget is not run, but it still
+  appears in the replayed transcript with a `tool` reply saying it was not
+  run and why: an OpenAI-shaped history where a `tool_calls` entry has no
+  matching `tool` reply is malformed, and providers reject it. Executed
+  calls replay the arguments Rosy validated; refused calls were never
+  validated, so their arguments are echoed back capped at 2,000 characters.
+- Once the budget is spent, the next request is sent with
+  `tool_choice: "none"`. A runtime that ignores this and asks for a tool
+  anyway is refused with a new `toolCallLimitIgnored` error rather than
+  allowed to keep spending.
 - A new **Skills** submenu below **Model** independently toggles Dictionary,
   Volume Control, Calculator & Units, Timers, and Battery & System for Rosy's
   own local and cloud conversations. Choices persist across relaunches and
@@ -59,8 +87,49 @@ records user-visible changes; the detailed engineering history remains in Git.
   dictionary and volume tools. DeepSeek requests use canonical JSON and
   explicitly disable thinking mode, avoiding its special requirement to replay
   private `reasoning_content` throughout tool-call history.
+- Added a ninth skill, **Web Search (Kagi)**, the only one that defaults to
+  off and the only one whose capability leaves the machine—every other skill
+  reads something already on this Mac. Two tools appear once a key is saved:
+  `web_search` (Kagi Search) and `web_fetch` (Kagi Extract, which returns a
+  page as Markdown), built against Kagi's current v1 API rather than the
+  Summarizer, FastGPT, and Enrichment endpoints Kagi's own MCP server has
+  already withdrawn.
+- The Kagi API token lives in its own Keychain entry, separate from the
+  cloud-inference credential, so forgetting one can never silently disarm the
+  other; it never reaches UserDefaults, Insights, or a log. Settings gains a
+  **Web Search** section with the token field, results per search (1–10,
+  default 5), how much extracted page text is kept (500–12,000 characters,
+  default 2,400), and the honest cost: roughly $12 per thousand searches and
+  $4 per thousand pages read.
+- Deterministic routing recognises plainly authored requests such as “search
+  the web for X” and “summarise https://…”, ordered ahead of File Search so
+  an explicit web request is never answered from the Spotlight index instead.
+  It is deliberately narrower than the other routers, because a wrong guess
+  here spends money, and unlike the fully local skills it still runs a
+  grounded second pass, because a search result is evidence to weigh rather
+  than an answer to repeat.
+- Search and page results are fenced between explicit BEGIN/END UNTRUSTED WEB
+  CONTENT markers with a preamble stating the text was written by strangers
+  and that any instruction inside it belongs to the document, not the user.
+  Rosy still has no shell or filesystem write and stays inside the same
+  per-answer tool-call limit as everything else, so a hostile page's blast
+  radius stays a visible wrong answer; results are displayed to the user
+  with their links intact, beside the model's answer, the same principle
+  already used for dictionary entries.
 
 ### Fixed
+
+- Credentials are read from the Keychain once per launch instead of on every
+  Skills-menu open, every request, and every prefix warm. On a rebuilt ad-hoc
+  signed app, whose code identity changes each time, those repeated reads each
+  raised a fresh authorisation question — and a stream of questions leaves
+  stale password dialogs on screen that accept no typing, because nothing is
+  listening behind them.
+- Saving an API key now replaces the stored Keychain item rather than updating
+  it in place. `SecItemUpdate` must open the existing item, which needs a
+  permission a rebuilt binary no longer holds; deleting and re-adding needs
+  none and leaves the item owned by the binary actually running. Applied to
+  both the Kagi token and the cloud-provider key, which shared the fault.
 
 - Explicit searches for files **named** or **called** something now constrain
   Spotlight to filesystem names instead of returning documents whose contents
@@ -72,6 +141,53 @@ records user-visible changes; the detailed engineering history remains in Git.
   and disappeared from Insights entirely.
 - Installing or warming a local model can no longer take inference back from a
   cloud profile that the user explicitly selected.
+- Removed the leftover SwiftUI `Settings { EmptyView() }` scene, kept as a
+  placeholder until a real settings window existed. That window was later
+  built in AppKit instead, and the placeholder was never removed, so Rosy Bit
+  opened **two windows both titled "Rosy Bit Settings,"** one of them
+  permanently blank, plus a ⌘, that opened the blank one. The entry point is
+  now a plain AppKit `main.swift`, with no SwiftUI App lifecycle left at all.
+  That scene had also been quietly supplying the app's **Edit menu** — an
+  `LSUIElement` app still needs one, because NSApplication dispatches key
+  equivalents to the key window, which is the only reason ⌘X/⌘C/⌘V/⌘A worked
+  inside a text field. Losing it silently would have made the DeepSeek and
+  Kagi key fields impossible to paste into. `AppDelegate` now builds that menu
+  by hand, and ⌘, opens the real settings window.
+- Kagi's matched-term highlighting inside search snippets (`<b>`, `<strong>`)
+  no longer reaches the user as literal angle brackets or the model as HTML
+  noise competing with the words it needs to read. Titles, snippets, and
+  extracted page text now pass through a tag-stripping and entity-decoding
+  step; `&amp;` is decoded last so an escaped escape cannot become a working
+  tag.
+- Replaying a tool-calling turn no longer discards the model's own words. The
+  assistant message used to be rebuilt with `content: null`, throwing away
+  prose the model had already streamed to the user — "let me look that up" —
+  so on a chained second round the model was shown its own previous turn as
+  empty. Its words are now replayed; `content` falls back to null only when
+  there genuinely were none.
+- A retrieved block — a dictionary entry, search results — no longer runs
+  straight into streamed prose that preceded it, which used to leave the
+  block's first Markdown heading stuck mid-line instead of starting its own —
+  "…for you. 💙### Web search: …". A blank line is now inserted whenever
+  prose came first.
+- DeepSeek's V4 models intermittently emit their internal tool-call markup —
+  `<｜DSML｜>` wrapping `invoke`/`parameter` tags — as ordinary assistant
+  content instead of a structured `tool_calls` field, with
+  `finish_reason: "stop"` and nothing left to execute. This is an open,
+  undocumented fault on DeepSeek's own hosted API — DSML appears nowhere in
+  DeepSeek's own API documentation and is known only from community
+  reverse-engineering — reported at roughly one turn in ten, and it is not
+  caused by anything in Rosy's own request. Rosy now recognises the markup
+  mid-stream, stops relaying it, and shows a short notice explaining that the
+  call was not run, that this is a known DeepSeek fault rather than a bad
+  request, and that asking again usually works. The complete reply still
+  reaches Insights, so nothing is hidden from someone trying to diagnose it.
+  Rosy deliberately does not parse the leaked markup back into an executable
+  call: turning free-form text into an action is exactly what this project's
+  guardrail against arbitrary execution forbids, and it would be worse here
+  than usual, because tool results carry untrusted web content — a page that
+  talked the model into echoing this shape would become an action Rosy
+  performed rather than a wrong sentence.
 
 ## [1.1.0] — 2026-08-31
 

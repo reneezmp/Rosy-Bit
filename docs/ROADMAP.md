@@ -172,12 +172,46 @@ private reasoning merely to satisfy a provider-specific transcript contract
 would violate that boundary. Dictionary and volume tools continue to use
 Rosy's local, allowlisted execution loop even when the answer model is remote.
 
+A related constraint is worth recording before thinking is ever turned back
+on: while it is active, DeepSeek V4 rejects `tool_choice: "required"` and
+named-function choices with HTTP 400 — only `"auto"`, `"none"`, or an omitted
+field are accepted. Rosy only ever sends `"auto"` or `"none"`, so this was
+never actually reachable, but the constraint governs any future version that
+enables thinking. `thinking: {"type": "disabled"}` is itself a documented
+DeepSeek parameter, alongside `reasoning_effort`, not an undocumented
+workaround, and the `reasoning_content` replay requirement above produces a
+hard HTTP 400 when breached rather than merely degraded output.
+
+DeepSeek's V4 models have a separate, genuinely undocumented fault, found
+rather than designed around: roughly one turn in ten, a tool call arrives as
+ordinary assistant content instead of a structured `tool_calls` field —
+`<｜DSML｜>` wrapping `invoke`/`parameter` tags, with `finish_reason: "stop"`
+and nothing left to execute. DSML appears nowhere in DeepSeek's own API
+documentation; it is known only from community reverse-engineering, and it is
+not caused by anything in Rosy's request. Rosy detects the markup mid-stream,
+stops relaying it, and tells the user plainly that this is a known DeepSeek
+fault rather than a bad request and that asking again usually works. The
+complete reply still reaches Insights, so the fault stays diagnosable rather
+than silently swallowed.
+
+Rosy deliberately does not parse that markup back into a tool call to
+execute, even though doing so would "recover" the lost call. Reconstructing
+an executable action out of free-form text is exactly what this project's
+guardrail against arbitrary execution forbids — see Permanent guardrails
+below — and it is worse here than in general, because tool results carry
+untrusted web content: a page that talked the model into echoing this shape
+would become an action Rosy performed, not just a wrong sentence. A missed
+tool call costs one retyped question; a forged one costs considerably more.
+The same reasoning is why search and page results are fenced as untrusted
+below rather than trusted because a provider returned them — a model's own
+leaked output gets no more benefit of the doubt than a hostile page does.
+
 ### User-controlled skills — implemented
 
-**Skills** sits directly below **Model** and exposes eight independent persistent
+**Skills** sits directly below **Model** and exposes nine independent persistent
 switches: Dictionary, Volume Control, Calculator & Units, Timers, Battery &
-System, Apps & Finder, File Search, and Reminders. The same preferences govern
-local and cloud conversations. Turning a
+System, Apps & Finder, File Search, Reminders, and Web Search (Kagi). The same
+preferences govern local and cloud conversations. Turning a
 skill off removes its model-facing schema and its product-side deterministic
 router; Volume Control off therefore blocks exact set/mute/unmute commands as
 well as `volume_get`, while Timers off blocks creation, listing, and
@@ -208,8 +242,79 @@ the measured Bonsai builds. **Model-led** adds bounded action schemas for
 volume, timers, Apps & Finder, and Reminders; this is also the explicit opt-in
 that enables tools for other local models. Cloud models support either mode.
 Both paths still enforce allowlists, exact JSON shapes, ranges, existing-path
-checks, enabled-skill gates, and one tool execution per turn. Model-led loosens
-interpretation, never validation, and adds no confirmation round-trip.
+checks, and enabled-skill gates. Model-led loosens interpretation, never
+validation, and adds no confirmation round-trip.
+
+Guided keeps its original one-tool-per-answer contract unconditionally: that
+is the shape Bonsai 1.7B Q1_0 was measured on, and a 1-bit model chaining
+tools unsupervised is not something this project has evidence for. Model-led
+can now chain calls within one answer instead of stopping after the first —
+search the web, then read the most promising result — bounded by a new
+**Settings → Tool Calls → "Limit per answer"** stepper (1–8, default 3). The
+loop streams, executes whatever the model asked for, appends the result, and
+streams again until the model answers or the limit is spent; once it is
+spent, the next request goes out with `tool_choice: "none"`, and a runtime
+that ignores that and asks for a tool anyway is refused rather than allowed
+to keep spending. A message may also ask for several calls at once, which
+Rosy previously rejected outright; these now share one assistant turn and
+one budget. A call that does not fit the remaining budget is not run, but
+still appears in the replayed transcript with a `tool` reply explaining why,
+because an OpenAI-shaped history where a `tool_calls` entry has no matching
+reply is malformed and providers reject it. The limit lives in Settings
+rather than Skills because it governs cost and patience, not consent — which
+capabilities exist at all stays a menu-bar decision.
+
+### Web search — implemented
+
+Every native skill so far reads something already on this Mac: a dictionary,
+a volume, a battery, a Spotlight index. Web Search does not, and that single
+difference shaped the whole design. It is the ninth skill and the only one
+that defaults to off; switching it on is the moment a fact is allowed to
+travel to a stranger's server instead of staying a local guess.
+
+Two tools cover it: `web_search` (Kagi Search) and `web_fetch` (Kagi Extract,
+which returns a page as Markdown), built against Kagi's current v1 API —
+`POST /api/v1/search` and `POST /api/v1/extract`, authenticated with
+`Authorization: Bearer`. Kagi's older Summarizer, FastGPT, and Enrichment
+endpoints were deliberately left alone: they sit outside Kagi's own v1
+specification, and Kagi's own MCP server has already withdrawn them. Rosy Bit
+should not build a permanent capability on a surface its vendor is walking
+away from.
+
+The API token lives in its own Keychain entry, separate from the
+cloud-inference credential, so forgetting to renew one can never silently
+disarm the other; it never reaches UserDefaults, Insights, or a log. The
+schema itself stays withheld from the model until a key is actually saved, so
+Bonsai is never invited to promise a search that can only fail. Settings
+states the shape of the spend rather than hiding it — roughly $12 per
+thousand searches and $4 per thousand pages — with results per search (1–10)
+and kept page length (500–12,000 characters) as the only two knobs, because a
+search is billed once whatever those are set to; they govern Rosy's context,
+not the bill.
+
+Guided routing recognises plainly authored requests — "search the web for
+X", "summarise https://…" — and is deliberately narrower than the dictionary
+and file-search routers, because a wrong guess here spends real money. It is
+ordered ahead of File Search so an explicit web request is never quietly
+answered from the Spotlight index instead, and unlike the fully local skills
+it still runs a grounded second pass, because a search result is evidence to
+weigh rather than an answer to repeat.
+
+What comes back is treated as hostile by default. Search snippets and page
+text are fenced between explicit BEGIN/END UNTRUSTED WEB CONTENT markers with
+a preamble stating plainly that the text was written by strangers and that
+any instruction inside it belongs to the document, not the user. Rosy still
+has no shell or filesystem write and stays inside the same per-answer
+tool-call limit as every other skill, so the blast radius of a hostile page
+is a wrong answer — but one whose source the user can see, because results
+are displayed beside the model's answer with their links intact, the same
+principle already used for dictionary entries.
+
+The same boundary holds in the other direction. A model's own output gets no
+more benefit of the doubt than a hostile page does: Rosy will not turn a
+provider's leaked internal tool-call markup into an executable call either,
+for the identical reason an injected instruction inside a fenced page is
+never obeyed — see the DeepSeek note under Optional cloud models.
 
 ### Native 1-bit model laboratory
 
@@ -243,6 +348,19 @@ from installation, but it introduces an Apple account, certificates,
 notarisation, and recurring operational work. It is convenience—not a condition
 of Rosy Bit being legitimate software.
 
+Web search gave that convenience a price, though, and it is worth recording
+before the next person weighs this up. An ad-hoc signature carries no stable
+code identity, so every rebuild produces an app macOS treats as a stranger —
+and a Keychain item written by the previous build no longer recognises it. Once
+Rosy started keeping API tokens, each reinstall meant an authorisation prompt,
+and the read-often paths turned that single prompt into a stream of them. The
+symptoms were fixed where they belonged, in how often Rosy reads a credential
+and in how she writes one, but the cause was never Rosy's: it is what ad-hoc
+signing means. The same weakness is why a test binary could read a stored token
+without being challenged. A Developer ID signature is the only thing that ends
+it, which moves this item from tidiness towards something the credential store
+has a real stake in.
+
 ### Additional system tools
 
 Calendar, reminders, Shortcuts, files, or automation only after the tool layer
@@ -256,4 +374,12 @@ The project grows by consent, not by quietly accumulating authority.
 - No background polling merely to make an indicator animate.
 - No transcript persistence hidden behind a friendly interface.
 - No arbitrary command execution delegated to a probabilistic model.
+- No automatic or speculative web search: Rosy never pre-fetches and never
+  retries on her own. A search fires only because the model or the router
+  decided one question needed it, and every call — search or fetch, however
+  many a single answer chains — is bounded by the same per-answer tool-call
+  limit as any other skill.
+- No turning a model's free-form text into an executable tool call, however
+  plausible it looks — including a provider's own leaked internal tool-call
+  markup. A missed call costs a retyped question; a forged one costs more.
 - No abandoning Ventura while Rosy can still do the work.

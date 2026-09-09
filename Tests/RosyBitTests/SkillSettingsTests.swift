@@ -33,6 +33,7 @@ final class SkillSettingsTests: XCTestCase {
             appsFinderEnabled: false,
             fileSearchEnabled: false,
             remindersEnabled: false,
+            webSearchEnabled: false,
             routingMode: .guided)
 
         XCTAssertTrue(schemas.isEmpty)
@@ -50,6 +51,7 @@ final class SkillSettingsTests: XCTestCase {
             appsFinderEnabled: false,
             fileSearchEnabled: false,
             remindersEnabled: false,
+            webSearchEnabled: false,
             routingMode: .guided)
         let volume = SkillSettings.schemas(
             isCloud: true,
@@ -62,6 +64,7 @@ final class SkillSettingsTests: XCTestCase {
             appsFinderEnabled: false,
             fileSearchEnabled: false,
             remindersEnabled: false,
+            webSearchEnabled: false,
             routingMode: .guided)
 
         XCTAssertEqual(try toolName(in: dictionary), DictionaryTool.name)

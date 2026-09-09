@@ -267,6 +267,48 @@ enum Config {
     /// The setting stays in case upstream ever starts reading the field.
     static var internalSlot: Int { intDefault("internalSlot", fallback: -1, clampedTo: -1...7) }
 
+    /// How many tool calls one answer may make in **Model-led** routing.
+    /// Guided is always exactly one, whatever this says.
+    ///
+    /// Chaining is the point — search, then read the best result — but every
+    /// link is a full generation on two cores, and with Web Search on it can
+    /// also be a billed call. Three covers the useful chains without letting a
+    /// confused model spend an afternoon and a fistful of API credit.
+    static var maxToolCalls: Int {
+        intDefault("maxToolCalls", fallback: 3, clampedTo: 1...8)
+    }
+
+    /// Kagi is the one capability that leaves this Mac, so its knobs are
+    /// deliberately conservative. Both calls cost real money — a search is
+    /// billed at $12 per thousand, a page extraction at $4 per thousand — so
+    /// these limits are spending controls as much as context controls.
+    enum Kagi {
+        static let defaultResultLimit = 5
+        static let defaultPageCharacters = 2_400
+
+        /// Kagi accepts up to 1,024. Rosy does not offer that: five results is
+        /// roughly a page of snippets, which is already most of what a
+        /// 2,048-token context can hold and still answer around.
+        static var resultLimit: Int {
+            intDefault("kagiResultLimit", fallback: defaultResultLimit, clampedTo: 1...10)
+        }
+
+        /// How much of an extracted page reaches the model. Kagi bills the
+        /// extraction, not the length, so this is purely about not evicting
+        /// the conversation that asked the question.
+        static var pageCharacters: Int {
+            intDefault(
+                "kagiPageCharacters",
+                fallback: defaultPageCharacters,
+                clampedTo: 500...12_000)
+        }
+
+        /// Seconds Rosy waits on Kagi before giving up. Long enough for a slow
+        /// café connection, short enough that a stalled search does not look
+        /// like a hung app.
+        static var requestTimeout: TimeInterval { 30 }
+    }
+
     /// The ask bar's shortcut. Stored as a virtual key code and a Carbon
     /// modifier mask, both settable in Settings — ⌥Space is a popular choice
     /// among launchers, so it needs to be changeable.

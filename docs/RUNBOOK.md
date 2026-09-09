@@ -257,7 +257,14 @@ Running `xattr -dr` is harmless either way.
 
 A sakura appears in the menu bar. There is no Dock icon or permanent main
 window—`LSUIElement` keeps Rosy Bit out of the Dock—but the menu can open the
-Ask bar, Settings, Insights, the model downloader, and the log.
+Ask bar, Settings, Insights, the model downloader, and the log. **Settings…**
+opens from the menu or **⌘,**.
+
+Cut, Copy, Paste, Select All, Undo, and Redo in Rosy Bit's own text fields are
+provided by an Edit menu the app builds by hand, not a system default. An
+`LSUIElement` app never draws its main menu, but NSApplication still dispatches
+key equivalents to the key window, so that hand-built menu is the only reason
+**⌘V works when pasting a DeepSeek or Kagi key** into its field below.
 
 ### Optional cloud model
 
@@ -280,7 +287,7 @@ metadata and Keychain credential.
 
 Open **Skills** to enable or disable **Dictionary**, **Volume Control**,
 **Calculator & Units**, **Timers**, **Battery & System**, **Apps & Finder**,
-**File Search**, and **Reminders** independently. The
+**File Search**, **Reminders**, and **Web Search (Kagi)** independently. The
 choices persist across launches and apply to Rosy's Ask bar and chat for both
 local and cloud models. They do not rewrite tool schemas sent by an independent
 client to Rosy's OpenAI-compatible endpoint.
@@ -292,10 +299,19 @@ scheduled in macOS and can be managed after the skill is enabled again. With
 Apps & Finder off, exact launch/quit/Finder commands are blocked; File Search
 off prevents Spotlight queries. The first Reminders command displays macOS's
 native permission dialog, and disabling the skill never changes existing data.
-With
-all skills off, Rosy omits the complete `tools` and `tool_choice` segment. When
-a local model is running, changing a toggle refreshes the stable prompt prefix
-automatically.
+With all skills off, Rosy omits the complete `tools` and `tool_choice` segment.
+When a local model is running, changing a toggle refreshes the stable prompt
+prefix automatically.
+
+Web Search (Kagi) is the only skill that starts off, because it is the only
+one whose capability leaves the Mac. Turning it on in Skills does nothing by
+itself: Settings → **Web Search** also needs a Kagi API token, saved to its
+own Keychain entry separate from any cloud-inference credential, before
+`web_search` or `web_fetch` are added to the schema at all. Results per
+search and kept page length are adjustable there too, alongside the honest
+per-call cost—roughly $12 per thousand searches and $4 per thousand pages
+read. Removing the key or switching the skill off both withdraw the schema
+immediately; neither one touches the other's setting.
 
 Under **Skills → Tool Routing**, choose exactly one mode:
 
@@ -306,6 +322,21 @@ Under **Skills → Tool Routing**, choose exactly one mode:
 
 Changing modes persists and refreshes the local prompt prefix. Model-led does
 not weaken argument validation or add confirmation turns.
+
+Guided always uses exactly one tool call per answer, whatever the setting
+below says — that is the shape Bonsai 1.7B Q1_0 was measured on, and a 1-bit
+model chaining tools unsupervised is not something this project has evidence
+for. Model-led can chain calls within one answer instead: search the web,
+then read the most promising result, for example. **Settings → Tool Calls →
+"Limit per answer"** is a stepper from 1 to 8, default 3, that bounds how far
+a Model-led answer may chain. It lives in Settings rather than Skills because
+it governs cost and patience, not consent — which capabilities exist at all
+stays a menu-bar decision. Once the limit is spent, the next request goes out
+with tool calling switched off for that turn; a model that asks for a tool
+anyway is refused rather than allowed to keep spending. Every extra call is
+another full generation on Rosy's two cores and, with Web Search enabled,
+possibly another billed Kagi request — Settings states this plainly next to
+the stepper.
 
 ```
 ● Running — 127.0.0.1:1337
@@ -525,6 +556,56 @@ Models Folder…** in that submenu takes you there.
 | `⚠ Port 1337 held by <name>` | something else has the port | quit it, or change `port` above |
 | Launch at Login won't stick | app not in a stable location | move to `/Applications`, toggle again |
 | Menu says Running but clients time out | still loading the model | wait; `curl /health` returns 503 until ready |
+| Cloud reply ends with a note that "the model returned a tool call as plain text" | known intermittent DeepSeek V4 fault — see below | ask again; the request itself was fine |
+
+**The DeepSeek tool-call notice.** Roughly one turn in ten, DeepSeek's V4
+models emit their internal tool-call markup — `<｜DSML｜>` wrapping
+`invoke`/`parameter` tags — as ordinary reply text instead of a real
+`tool_calls` field, with `finish_reason: "stop"` and nothing left for Rosy to
+run. This is a fault on DeepSeek's own hosted API, not something Rosy's
+request causes, and it is undocumented — DSML appears nowhere in DeepSeek's
+API reference; it is known only from community reverse-engineering. Rosy
+detects the markup mid-stream, stops relaying it, and appends the notice
+instead. Detection happens as the reply arrives rather than after it, so if
+the opening marker is split across two streamed fragments a few stray
+characters of it can appear before the notice — everything after that point
+is withheld. It is upstream and
+intermittent: asking the same question again almost always gets a normal
+tool call back. The complete raw reply, markup included, still reaches
+Insights, so the fault stays inspectable rather than silently swallowed.
+Rosy will not parse that markup into a call and run it herself, even though
+the shape is recognisable — see the guardrail note in
+[`ROADMAP.md`](ROADMAP.md).
+
+**The Keychain password prompt.** After installing a rebuilt Rosy Bit, macOS
+may ask for the login Keychain password to reach `com.rosybit.app.kagi` or
+`com.rosybit.app.cloud-provider` — and the dialog sometimes accepts no typing
+at all. Both symptoms have the same cause. Rosy Bit is ad-hoc signed, so every
+rebuild gives the app a different code identity, and an item written by
+yesterday's binary does not recognise today's. Until it is re-authorised, each
+read is a fresh authorisation question; Rosy used to read the token on every
+Skills-menu open and on every request, which turned one question into a stream
+of them, and a stream of them leaves stale dialogs on screen with no live
+prompt behind them. A dialog in that state is not waiting for input — nothing
+is listening.
+
+Rosy now reads each credential once per launch and keeps it in memory, and
+saving a key replaces the stored item rather than updating it in place.
+`SecItemUpdate` has to open the existing item, which needs a permission the
+rebuilt binary no longer holds; deleting and re-adding needs no such permission
+and leaves the item owned by the binary that is actually running. Saving a key
+after a rebuild should therefore be silent.
+
+If a prompt appears anyway, quit Rosy Bit — that clears any stale dialog — then
+remove the orphaned item and save the key again from Settings:
+
+```bash
+security delete-generic-password -s com.rosybit.app.kagi
+```
+
+The two credentials live in separate Keychain entries, so removing one never
+disturbs the other. A Developer ID signature would end this class of problem
+outright, because the app's identity would stop changing; see the roadmap.
 
 **Orphaned servers.** Force-quit the app and `llama-server` would normally keep
 running and hold the port. Rosy Bit handles this at both ends: it kills its

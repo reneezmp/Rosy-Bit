@@ -80,6 +80,13 @@ endpoint — which also tells us the fault is in the proxy rather than elsewhere
 
 ## 3. Settings (⌘,)
 
+- [ ] ⌘, opens Settings, and only Settings — no second, blank window opens
+      alongside it
+- [ ] Closing Settings leaves no other window behind; reopening with ⌘, or
+      from the menu shows the same, populated window every time
+- [ ] **⌘V pastes into the DeepSeek/Kagi key field.** Call this one out: the
+      app's Edit menu is hand-built rather than supplied by a framework, so a
+      regression here silently breaks pasting a key with no error shown
 - [ ] Opens, shows current values
 - [ ] KV cache estimate changes with context size and cache precision
 - [ ] Set both ports the same → Apply disables, warning appears
@@ -271,12 +278,16 @@ shows the registration failure there rather than silently ignoring it.
       record; a tool-backed answer selects the newer grounded follow-up
 - [ ] Neither the Keychain credential nor an Authorization header appears in
       any cloud Insights tab
+- [ ] When DeepSeek leaks its `<｜DSML｜>` tool-call markup as plain text
+      (roughly one turn in ten — repeat a tool-triggering DeepSeek question
+      until it happens), Rosy shows the plain-language notice instead of the
+      raw markup, and the complete raw reply still reaches Insights unedited
 
 ---
 
 ## 8. Skills
 
-- [ ] **Skills** appears immediately below **Model**, with eight independent
+- [ ] **Skills** appears immediately below **Model**, with nine independent
       checked rows and no bulk-disable item
 - [ ] Both choices persist across relaunch and affect local and cloud chats
 - [ ] Disabling Dictionary removes its schema and deterministic lookup route;
@@ -299,7 +310,7 @@ shows the registration failure there rather than silently ignoring it.
 - [ ] The first Reminders command requests native permission; create, list,
       complete, and delete work without a model confirmation turn
 - [ ] With one skill enabled, Insights shows exactly that one tool schema
-- [ ] With all eight skills disabled, Insights contains neither `tools` nor
+- [ ] With all nine skills disabled, Insights contains neither `tools` nor
       `tool_choice`
 - [ ] Changing a skill while a local model is running refreshes the stable
       prefix before the next request
@@ -312,6 +323,85 @@ shows the registration failure there rather than silently ignoring it.
 - [ ] Model-led rejects volume outside 0–100, boolean numeric values, timers
       beyond seven days, unknown Finder folders, malformed due dates, and extra
       JSON fields before native state changes
+- [ ] When Rosy speaks before reaching for a tool ("Let me look that up…"), the
+      retrieved block that follows (dictionary entry, search results) starts
+      its own Markdown heading on a new line rather than running into that
+      sentence
+
+### Tool-call chaining and the per-answer limit
+
+Needs Web Search enabled with a saved Kagi key (see below) and Model-led
+routing selected, since Guided cannot chain by design.
+
+- [ ] **Settings → Tool Calls** shows a "Limit per answer" stepper from 1 to
+      8, defaulting to 3, with copy explaining chaining and its cost
+- [ ] With the limit at 3 or higher, "Search the web for the current Kagi
+      status page and tell me what the top result says" produces two tool
+      calls in one answer — a search, then a fetch of the most promising
+      result — visible as two entries in Insights for the same reply
+- [ ] The same request under **Guided** routing still stops after exactly one
+      tool call regardless of the Settings value, and answers from the search
+      results alone rather than also fetching a page
+- [ ] Setting the limit to 1 and repeating the chaining request under
+      Model-led stops Rosy after the first call; the second half of the
+      request is answered from whatever the first call returned, not left
+      hanging
+- [ ] After the first tool call in a chain, the replayed assistant turn keeps
+      whatever the model said before calling the tool — check Insights' Request
+      tab for that turn's `content`, which must not be null when the model
+      actually wrote something
+- [ ] A request likely to chain more calls than the configured limit allows
+      (for example asking Model-led to search three different topics with the
+      limit at 2) still produces a valid, complete assistant reply — Rosy
+      answers with what she has rather than erroring
+- [ ] Insights' Request tab on that reply shows a `tool_calls` entry for the
+      refused call paired with a `tool` reply stating it was not run and why,
+      confirming the replayed transcript is well-formed rather than missing a
+      reply
+- [ ] Raising the limit to 8 and deliberately provoking a long chain does not
+      hang the UI; each additional call still streams and appends normally
+- [ ] With Web Search enabled and the limit above 1, Settings' warning about
+      extra calls costing another generation and possibly another billed Kagi
+      request is visible before triggering a chain, not only after
+
+### Web Search (Kagi) — needs a real API key and network
+
+Everything below needs an actual Kagi account and a live connection; none of
+it can be faked with a mock, because the point is confirming Rosy's own
+validation against Kagi's real v1 API rather than a description of it.
+
+- [ ] With no Kagi key saved, the model receives no `web_search` or
+      `web_fetch` schema even with the skill switched on
+- [ ] Settings → **Web Search** accepts a real token, shows "Saved in
+      Keychain" afterwards, and the field itself never redisplays the value
+- [ ] **Remove** deletes the Keychain entry and the schema disappears again
+      without a key, even with the skill left on
+- [ ] "Search the web for the current Kagi status page" returns real titles,
+      URLs, and snippets, displayed with working links beside the model's
+      answer
+- [ ] Search a term Kagi is likely to bold in its own snippets (a distinctive
+      word from the query) and confirm no `<b>`, `<strong>`, or other HTML tag
+      is visible in the displayed title or snippet — only the plain matched
+      word
+- [ ] "Summarise https://kagi.com" (or another real page) returns Markdown
+      text via Extract rather than a summary invented from the URL alone
+- [ ] An invalid or revoked key produces Kagi's HTTP 401/403 message rather
+      than a generic failure
+- [ ] A key with no remaining credit surfaces Kagi's HTTP 402 message
+- [ ] Disabling Web Search mid-session blocks both tools and both
+      deterministic routes without clearing the saved key
+- [ ] Insights contains no Kagi request at all—the call goes straight out
+      over HTTPS rather than through the recording proxy—while the grounded
+      follow-up to the model appears there as usual, key and Authorization
+      header nowhere in it
+- [ ] A page that contains text such as "ignore previous instructions"
+      reaches the model only inside the BEGIN/END UNTRUSTED WEB CONTENT
+      fence, and the final answer does not comply with it
+- [ ] Raising **Results per search** and **Page text kept** in Settings
+      changes what Rosy requests and retains, confirmed against the actual
+      response sizes
+- [ ] Airplane Mode or a firewalled Kagi host produces the plain "could not
+      reach Kagi" message instead of a hang or a retry
 
 ---
 

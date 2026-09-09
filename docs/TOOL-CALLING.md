@@ -267,7 +267,10 @@ in place of it. The entry is the answer; the model is the presenter.
 - The +49% drift is unconfirmed as thermal throttling. Nobody has watched
   Rosy's clock speeds while the suite ran.
 - Only single-call turns were tested. Chained calls, parallel calls, and
-  recovery from a tool that returns an error are all untested.
+  recovery from a tool that returns an error are all untested. Model-led
+  routing now ships chaining anyway, on that untested basis; this line is
+  precisely why Guided stays pinned at exactly one call, and why the
+  per-answer limit exists to bound something nobody has measured yet.
 - 8B has not been measured and will not be from Rosy — it is not installed
   there and is not a sensible thing to ask of her. Given the 4B result, nothing
   should be presumed about it either way.
