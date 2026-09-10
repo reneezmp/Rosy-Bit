@@ -316,6 +316,11 @@ final class SettingsWindowController: NSWindowController {
 struct SettingsView: View {
 
     @ObservedObject var model: SettingsModel
+    // Every control in Model and Performance is a `llama-server` command-line
+    // flag. Watching the two stores that can move inference elsewhere is what
+    // lets those sections say so instead of accepting edits that do nothing.
+    @ObservedObject private var cloud = CloudModelStore.shared
+    @ObservedObject private var apple = AppleModelStore.shared
 
     private static let contextSizes = [2048, 4096, 8192, 16384, 32768]
 
@@ -329,6 +334,12 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             Form {
+                if let elsewhere = runtimeNotice {
+                    Section {
+                        Label(elsewhere, systemImage: "info.circle")
+                            .font(.callout)
+                    }
+                }
                 modelSection
                 samplingSection
                 systemPromptSection
@@ -346,6 +357,27 @@ struct SettingsView: View {
         }
         .frame(minWidth: 500, minHeight: 540)
     }
+
+    /// Set when inference is not going to `llama-server`, in which case the
+    /// context size, cache, sampling and threading controls below govern a
+    /// process that is not running.
+    private var runtimeNotice: String? {
+        switch InferenceSource.current() {
+        case .local:
+            return nil
+        case .cloud:
+            return "A cloud model is selected, so the local server's settings are "
+                + "inactive. The provider decides context, sampling, and cost; Rosy "
+                + "sends only the token limit set in its own window."
+        case .apple:
+            return "Apple's on-device model is selected, so the local server's settings "
+                + "are inactive. It manages its own context window and publishes no "
+                + "size to set — there is nothing here to tune. Pick a GGUF under "
+                + "Model to bring these back."
+        }
+    }
+
+    private var servesLocally: Bool { InferenceSource.current() == .local }
 
     private var modelSection: some View {
         Section("Model") {
@@ -374,6 +406,7 @@ struct SettingsView: View {
                 Text("auto").tag("auto")
             }
         }
+        .disabled(!servesLocally)
     }
 
     private var samplingSection: some View {
@@ -384,20 +417,29 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
+            // Temperature is the one sampling control every runtime honours:
+            // llama-server takes `--temp`, a custom cloud provider is sent it,
+            // and Apple's `GenerationOptions` carries it too. So it stays live
+            // whatever is selected, and the four below — which are llama.cpp
+            // sampler flags and nothing else — do not.
             slider("Temperature", $model.values.temperature, range: 0...2, step: 0.05,
                    hint: "Card suggests 0.5 – 0.7")
-            Stepper("Top-k: \(model.values.topK)", value: $model.values.topK, in: 1...200)
-            Text("Card suggests 20 – 40")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            slider("Top-p", $model.values.topP, range: 0...1, step: 0.01,
-                   hint: "Card suggests 0.85 – 0.95")
-            slider("Repetition penalty", $model.values.repeatPenalty, range: 1...1.5, step: 0.05,
-                   hint: "1.0 is off. Raise towards 1.1 if long answers start repeating.")
-            slider("Presence penalty", $model.values.presencePenalty, range: -2...2, step: 0.1,
-                   hint: nil)
 
-            Button("Reset to the model card") { model.useModelCardValues() }
+            Group {
+                Stepper("Top-k: \(model.values.topK)", value: $model.values.topK, in: 1...200)
+                Text("Card suggests 20 – 40")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                slider("Top-p", $model.values.topP, range: 0...1, step: 0.01,
+                       hint: "Card suggests 0.85 – 0.95")
+                slider("Repetition penalty", $model.values.repeatPenalty, range: 1...1.5, step: 0.05,
+                       hint: "1.0 is off. Raise towards 1.1 if long answers start repeating.")
+                slider("Presence penalty", $model.values.presencePenalty, range: -2...2, step: 0.1,
+                       hint: nil)
+
+                Button("Reset to the model card") { model.useModelCardValues() }
+            }
+            .disabled(!servesLocally)
         }
     }
 
@@ -554,6 +596,7 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+        .disabled(!servesLocally)
     }
 
     private var endpointSection: some View {

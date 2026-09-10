@@ -163,7 +163,6 @@ final class CloudModelStore: ObservableObject {
     static let shared = CloudModelStore()
 
     private static let configurationKey = "cloudProviderConfiguration"
-    private static let sourceKey = "inferenceSource"
 
     @Published private(set) var configuration: CloudProviderConfiguration?
     @Published private(set) var isCloudSelected: Bool
@@ -176,7 +175,7 @@ final class CloudModelStore: ObservableObject {
         if let data = defaults.data(forKey: Self.configurationKey) {
             configuration = try? JSONDecoder().decode(CloudProviderConfiguration.self, from: data)
         }
-        isCloudSelected = defaults.string(forKey: Self.sourceKey) == "cloud"
+        isCloudSelected = InferenceSource.current(defaults) == .cloud
     }
 
     var isReady: Bool {
@@ -217,26 +216,42 @@ final class CloudModelStore: ObservableObject {
 
         let data = try JSONEncoder().encode(validated)
         defaults.set(data, forKey: Self.configurationKey)
-        defaults.set("cloud", forKey: Self.sourceKey)
+        InferenceSource.set(.cloud, defaults)
         configuration = validated
         isCloudSelected = true
+        AppleModelStore.shared.refresh()
+    }
+
+    /// Re-reads the shared key after another store wrote it. The three
+    /// selections — GGUF, cloud, on-device — are one exclusive choice, so each
+    /// store has to be able to notice it lost.
+    func refreshSelection() {
+        let selected = InferenceSource.current(defaults) == .cloud
+        if isCloudSelected != selected { isCloudSelected = selected }
     }
 
     func selectLocal() {
-        defaults.set("local", forKey: Self.sourceKey)
+        InferenceSource.set(.local, defaults)
         isCloudSelected = false
+        AppleModelStore.shared.refresh()
     }
 
     func selectCloud() {
         guard configuration != nil else { return }
-        defaults.set("cloud", forKey: Self.sourceKey)
+        InferenceSource.set(.cloud, defaults)
         isCloudSelected = true
+        AppleModelStore.shared.refresh()
     }
 
     func forget() {
         CloudCredentialStore.delete()
         defaults.removeObject(forKey: Self.configurationKey)
-        defaults.set("local", forKey: Self.sourceKey)
+        // Only this profile is being forgotten. If the on-device model is what
+        // is selected, dropping the key back to "local" would silently move
+        // inference to a GGUF the user did not pick.
+        if InferenceSource.current(defaults) == .cloud {
+            InferenceSource.set(.local, defaults)
+        }
         configuration = nil
         isCloudSelected = false
     }
@@ -245,7 +260,7 @@ final class CloudModelStore: ObservableObject {
     func endRequest() { activeRequests = max(0, activeRequests - 1) }
 
     static var selectedConfiguration: CloudProviderConfiguration? {
-        guard UserDefaults.standard.string(forKey: sourceKey) == "cloud",
+        guard InferenceSource.current() == .cloud,
               let data = UserDefaults.standard.data(forKey: configurationKey) else { return nil }
         return try? JSONDecoder().decode(CloudProviderConfiguration.self, from: data)
     }

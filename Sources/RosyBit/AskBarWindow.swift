@@ -53,12 +53,18 @@ final class AskBarModel: ObservableObject {
 
         // Say why nothing will happen, rather than letting a refused connection
         // read as the model declining to answer.
-        if CloudModelStore.shared.isCloudSelected {
+        switch InferenceSource.current() {
+        case .cloud:
             if let readinessError = CloudModelStore.shared.readinessError {
                 errorMessage = readinessError.localizedDescription
                 return
             }
-        } else {
+        case .apple:
+            if case .unavailable(let reason) = AppleFoundationModel.readiness {
+                errorMessage = reason
+                return
+            }
+        case .local:
             let server = ServerController.shared
             guard server.state == .running || server.state == .starting else {
                 errorMessage = server.state.menuTitle

@@ -94,12 +94,15 @@ enum SkillSettings {
     }
 
     /// The canonical schema list for one request. Cloud providers can use the
-    /// measured native loop directly. Guided local routing remains gated to
-    /// the exact Bonsai build that passed the harness; explicitly selecting
-    /// Model-led is the user's opt-in for other, typically larger, local models.
+    /// measured native loop directly, and so can Apple's on-device model, whose
+    /// tool calling is a first-class framework feature rather than something
+    /// coaxed out of a prompt. Guided local routing remains gated to the exact
+    /// Bonsai build that passed the harness; explicitly selecting Model-led is
+    /// the user's opt-in for other, typically larger, local models.
     static func schemas(
         isCloud: Bool,
         modelName: String?,
+        isAppleFoundationModel: Bool = false,
         dictionaryEnabled: Bool? = nil,
         volumeEnabled: Bool? = nil,
         calculatorEnabled: Bool? = nil,
@@ -113,6 +116,7 @@ enum SkillSettings {
     ) -> [[String: Any]] {
         let mode = selectedRoutingMode ?? routingMode()
         let runtimeSupportsTools = isCloud
+            || isAppleFoundationModel
             || DictionaryTool.isAvailable(for: modelName)
             || mode == .modelLed
         guard runtimeSupportsTools else { return [] }

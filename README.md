@@ -54,6 +54,14 @@ Rosy Bit includes:
 - native Apple Reminders listing and exact create, complete, and delete commands;
 - an explicitly selected cloud-model profile for DeepSeek or a custom
   OpenAI-compatible HTTPS provider, with credentials stored in macOS Keychain;
+- Apple's on-device model as one more local choice, where the Mac can run it—
+  Apple Silicon, macOS 26 or later, Apple Intelligence switched on—shown greyed
+  out with the reason when it is merely turned off, and absent entirely where it
+  is not possible, with every skill reachable through a runtime translation of
+  Rosy's schemas into Apple's own and the same native validation on the way back;
+- a **Context Budget** readout: what Rosy's own requests cost before the
+  question is typed, split into system prompt, tool schema, and chat template,
+  counted by the loaded model's own tokeniser rather than estimated;
 - an off-by-default Web Search skill reaching Kagi for live search and page
   reading—the only capability that leaves this Mac—with its token in its own
   Keychain entry and the per-call cost stated plainly in Settings;
@@ -89,10 +97,13 @@ Obsidian plugins, transcription tools, indie Mac apps, scripts, and local
 automation. Port 1337 deliberately matches Osaurus on a newer Mac, so the same
 client configuration can follow Renée from one machine to the other.
 
-Rosy Bit is **not** a replacement for Apple's Foundation Models. That is an
-in-process OS framework with no endpoint to redirect; on unsupported Intel Macs,
-the feature simply is not present. Rosy Bit serves the open door instead: apps
-that let their users choose where inference happens.
+Rosy Bit is **not** a replacement for Apple's Foundation Models, and the Model
+menu does not change that. Rosy can now *use* the on-device model for her own
+conversations on a Mac that has one, but she cannot serve it: it is an in-process
+OS framework with no endpoint to redirect, so while it is selected there is no
+`/v1` for other apps to point at, and on Rosy herself the option is not present
+at all. Rosy Bit serves the open door instead: apps that let their users choose
+where inference happens.
 
 ## Privacy and boundaries
 

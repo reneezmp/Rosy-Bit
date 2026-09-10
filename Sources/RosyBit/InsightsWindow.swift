@@ -226,11 +226,67 @@ private struct RequestDetailView: View {
         case .request:
             monospaced(record.requestBody, placeholder: "No request body")
         case .response:
+            responseTab
+        case .params:
+            paramsTab
+        }
+    }
+
+    /// The answer, with any tool calls above it.
+    ///
+    /// The calls come first because they happened first, and because a reply
+    /// that quotes a dictionary or a search is only trustworthy if what it was
+    /// given is visible beside it.
+    @ViewBuilder
+    private var responseTab: some View {
+        if record.toolCalls.isEmpty {
             monospaced(
                 record.responseText ?? record.responseBody,
                 placeholder: "No response body")
-        case .params:
-            paramsTab
+        } else {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    ForEach(record.toolCalls) { call in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("TOOL · \(call.name)")
+                                .font(.caption2.bold())
+                                .foregroundStyle(.secondary)
+                            Text(call.arguments.isEmpty ? "{}" : call.arguments)
+                                .font(.caption.monospaced())
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(Color.secondary.opacity(0.10)))
+                            if let observation = call.observation {
+                                Text(observation)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(10)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(Color.secondary.opacity(0.06)))
+                            }
+                        }
+                    }
+
+                    if let text = record.responseText ?? record.responseBody, !text.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("ANSWER")
+                                .font(.caption2.bold())
+                                .foregroundStyle(.secondary)
+                            Text(text)
+                                .font(.callout)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+                .padding(12)
+            }
         }
     }
 

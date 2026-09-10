@@ -116,10 +116,11 @@ struct ChatClient {
 
     /// The exact block shared by warming, automatic routing, and grounded
     /// follow-ups. Prefix reuse depends on this remaining byte-for-byte stable.
-    private static func toolSchemas(isCloud: Bool) -> [[String: Any]] {
+    static func toolSchemas(isCloud: Bool, isApple: Bool = false) -> [[String: Any]] {
         SkillSettings.schemas(
             isCloud: isCloud,
-            modelName: ModelStore.shared.selectedModel?.lastPathComponent)
+            modelName: ModelStore.shared.selectedModel?.lastPathComponent,
+            isAppleFoundationModel: isApple)
     }
 
     /// Streams a completion, calling `onDelta` on the main thread for each
@@ -318,14 +319,15 @@ struct ChatClient {
                 return
             }
 
-            let cloudSelected = await MainActor.run {
-                CloudModelStore.shared.isCloudSelected
-            }
+            let source = InferenceSource.current()
+            let cloudSelected = source == .cloud
+            let isApple = source == .apple
             let cloud = CloudModelStore.selectedConfiguration
-            if !cloudSelected {
+            if source == .local {
                 // Costs the caller nothing. The prefix has to be prefilled
                 // either way, so waiting for a local warm already doing it is
-                // the same work in a different order.
+                // the same work in a different order. Apple's model keeps no
+                // prefix Rosy can warm, and llama-server is not even running.
                 await warmInFlight()
             }
             if Task.isCancelled { return }
@@ -334,19 +336,26 @@ struct ChatClient {
                 guard !cloudSelected || cloud != nil else {
                     throw CloudProviderError.notConfigured
                 }
-                let destination = try destination(cloud: cloud)
+                // Apple's model is spoken to through FoundationModels rather
+                // than over HTTP, so it has neither a URL nor a request.
+                let destination = isApple ? nil : try destination(cloud: cloud)
                 if cloud != nil {
                     await MainActor.run { CloudModelStore.shared.beginRequest() }
+                } else if isApple {
+                    await MainActor.run { AppleModelStore.shared.beginRequest() }
                 }
                 defer {
                     if cloud != nil {
                         Task { @MainActor in CloudModelStore.shared.endRequest() }
+                    } else if isApple {
+                        Task { @MainActor in AppleModelStore.shared.endRequest() }
                     }
                 }
-                let request = try request(
-                    for: destination, messageID: messageID)
+                let request = try destination.map {
+                    try request(for: $0, messageID: messageID)
+                }
 
-                let schemas = toolSchemas(isCloud: cloud != nil)
+                let schemas = toolSchemas(isCloud: cloud != nil, isApple: isApple)
                 let dictionaryEnabled = schemas.contains { schema in
                     guard let function = schema["function"] as? [String: Any] else { return false }
                     return function["name"] as? String == DictionaryTool.name
@@ -397,12 +406,98 @@ struct ChatClient {
                     spent += 1
                 }
 
+                if isApple {
+                    let startedAt = Date()
+                    // FoundationModels never crosses the recording proxy, so
+                    // the call is described here in the same vocabulary the
+                    // proxy and the cloud client use. Without this Insights
+                    // would silently skip the one runtime whose traffic never
+                    // leaves the Mac, which is precisely the runtime a person
+                    // checking Insights has the least other way to inspect.
+                    var insightRecord: RequestRecord?
+                    if Config.insightsEnabled {
+                        let body = appleRequestBody(
+                            conversation: conversation, tools: schemas)
+                        insightRecord = RequestRecord.onDeviceRequest(
+                            body: body, chatMessageID: messageID, startedAt: startedAt)
+                    }
+                    // FoundationModels owns the tool loop, so what Rosy hands
+                    // over is the schemas, whatever is left of the budget, and
+                    // the same validated executor every other runtime reaches.
+                    // Nothing the model writes reaches a skill without passing
+                    // through `executeTool` first.
+                    let generated: AppleFoundationModel.Result
+                    do {
+                        generated = try await AppleFoundationModel.stream(
+                            conversation: conversation,
+                            toolSchemas: schemas,
+                            budget: max(0, budget - spent),
+                            execute: { call in
+                                let executed = try await executeTool(
+                                    id: "\(call.name)-\(UUID().uuidString)",
+                                    name: call.name,
+                                    arguments: call.arguments)
+                                return AppleFoundationModel.ToolOutcome(
+                                    observation: executed.observation,
+                                    displayed: executed.displayedContent)
+                            },
+                            onDelta: onDelta)
+                    } catch {
+                        // A refusal, an overflow, or a tool Rosy rejected. The
+                        // record is the only trace such an answer leaves, so it
+                        // matters more here than on a successful turn.
+                        if insightRecord != nil {
+                            insightRecord?.statusCode = 500
+                            insightRecord?.durationMs =
+                                Date().timeIntervalSince(startedAt) * 1000
+                            insightRecord?.responseText = BodySanitiser.sanitise(
+                                error is CancellationError
+                                    ? "Cancelled." : error.localizedDescription)
+                            await recordCloudInsight(insightRecord)
+                        }
+                        throw error
+                    }
+                    if Task.isCancelled { return }
+                    await MainActor.run {
+                        AppleModelStore.shared.recordInputTokens(generated.inputTokens)
+                    }
+                    var result = StreamResult(startedAt: startedAt, completedAt: Date())
+                    result.content = generated.text
+                    result.firstTokenAt = generated.firstTokenAt
+                    result.completionTokens = generated.completionTokens
+
+                    if insightRecord != nil {
+                        insightRecord?.statusCode = 200
+                        insightRecord?.durationMs =
+                            result.completedAt.timeIntervalSince(startedAt) * 1000
+                        insightRecord?.promptTokens = generated.inputTokens
+                        insightRecord?.completionTokens = generated.completionTokens
+                        insightRecord?.responseText = BodySanitiser.sanitise(generated.text)
+                        insightRecord?.responseBody = BodySanitiser.sanitise(
+                            appleResponseBody(generated))
+                        insightRecord?.toolCalls = generated.toolRuns.map { run in
+                            ToolCallRecord(
+                                name: run.name,
+                                arguments: BodySanitiser.sanitise(run.arguments) ?? "",
+                                observation: BodySanitiser.sanitise(run.observation))
+                        }
+                        await recordCloudInsight(insightRecord)
+                    }
+
+                    let appleMetrics = metrics(for: [result])
+                    await MainActor.run { onCompletion(.success(appleMetrics)) }
+                    return
+                }
+
                 while true {
                     if Task.isCancelled { return }
                     // With the budget gone the model is asked to answer, not to
                     // plan again. A runtime that ignores `tool_choice: none` is
                     // refused below rather than allowed to keep spending.
                     let exhausted = spent >= budget
+                    guard let destination, let request else {
+                        throw ChatError.notConfigured
+                    }
                     var payload = requestPayload(
                         destination: destination,
                         messages: conversation,
@@ -931,6 +1026,14 @@ struct ChatClient {
             }
             result.completedAt = Date()
             if insightRecord != nil {
+                insightRecord?.toolCalls = result.toolNames.keys.sorted().map { index in
+                    ToolCallRecord(
+                        name: result.toolNames[index] ?? "tool",
+                        arguments: BodySanitiser.sanitise(result.toolArguments[index] ?? "") ?? "",
+                        // The proxy and the cloud client both see the call on
+                        // this request and Rosy's reply to it on the next one.
+                        observation: nil)
+                }
                 insightRecord?.durationMs = result.completedAt.timeIntervalSince(startedAt) * 1000
                 insightRecord?.promptTokens = result.promptTokens
                 insightRecord?.completionTokens = result.completionTokens
@@ -953,6 +1056,56 @@ struct ChatClient {
             }
             throw error
         }
+    }
+
+    /// The request Rosy would have sent, had there been anywhere to send it.
+    ///
+    /// A faithful description of the call in the shape Insights already knows
+    /// how to read, so the Prompt, Request and Params tabs work unchanged. The
+    /// `transport` field is there so nobody reading the Request tab mistakes it
+    /// for something that crossed a network.
+    private static func appleRequestBody(
+        conversation: [[String: Any]],
+        tools: [[String: Any]]
+    ) -> String {
+        var payload: [String: Any] = [
+            "model": "apple-on-device",
+            "messages": conversation,
+            "stream": true,
+            "temperature": Config.temperature,
+            "transport": "in-process (FoundationModels) — nothing left this Mac",
+        ]
+        if !tools.isEmpty { payload["tools"] = tools }
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else { return "{}" }
+        return text
+    }
+
+    /// There is no wire format to record, so the Response tab gets the answer
+    /// alongside the tool calls the framework ran out of Rosy's sight and
+    /// whatever usage the OS was willing to publish.
+    private static func appleResponseBody(
+        _ generated: AppleFoundationModel.Result
+    ) -> String {
+        var payload: [String: Any] = ["content": generated.text]
+        if !generated.toolRuns.isEmpty {
+            payload["tool_calls"] = generated.toolRuns.map { run in
+                [
+                    "name": run.name,
+                    "arguments": run.arguments,
+                    "observation": run.observation,
+                ]
+            }
+        }
+        var usage: [String: Any] = [:]
+        if let input = generated.inputTokens { usage["prompt_tokens"] = input }
+        if let output = generated.completionTokens { usage["completion_tokens"] = output }
+        if !usage.isEmpty { payload["usage"] = usage }
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else { return "{}" }
+        return text
     }
 
     @MainActor
@@ -1040,10 +1193,10 @@ struct ChatClient {
     }
 
     private static func performWarm() async {
-        // Prefix warming belongs to llama-server. A cloud profile selected
-        // while a local warm is queued must not produce an uninvited local
-        // request after the switch.
-        guard CloudModelStore.selectedConfiguration == nil else { return }
+        // Prefix warming belongs to llama-server. A cloud profile or Apple's
+        // on-device model selected while a local warm is queued must not
+        // produce an uninvited local request after the switch.
+        guard InferenceSource.current() == .local else { return }
         guard let url = Config.chatCompletionsURL else { return }
 
         var request = URLRequest(url: url)

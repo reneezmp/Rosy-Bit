@@ -32,6 +32,24 @@ enum Config {
         URL(string: "http://\(host):\(port)/v1/chat/completions")
     }
 
+    /// Renders a request through the model's own chat template and returns the
+    /// prompt as a string. No inference happens, so this is nearly free.
+    ///
+    /// Addressed on the port llama-server actually binds rather than the public
+    /// one, which means it does not pass through the proxy and does not land in
+    /// Insights. That is deliberate: measuring Rosy's own prefix is a question
+    /// about the configuration, not traffic anyone had a conversation over, and
+    /// eight rows per menu open would bury the requests Insights exists for.
+    static var applyTemplateURL: URL? {
+        URL(string: "http://\(host):\(serverBindPort)/apply-template")
+    }
+
+    /// Counts the tokens in a string, using the tokenizer of the model that is
+    /// actually loaded. See `applyTemplateURL` for why it skips the proxy.
+    static var tokenizeURL: URL? {
+        URL(string: "http://\(host):\(serverBindPort)/tokenize")
+    }
+
     /// Prepended to conversations started from inside Rosy Bit. Does not affect
     /// other clients, which send their own.
     ///

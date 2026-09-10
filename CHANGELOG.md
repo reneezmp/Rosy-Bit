@@ -5,6 +5,103 @@ records user-visible changes; the detailed engineering history remains in Git.
 
 ## Unreleased
 
+- Added **Apple Intelligence — on-device** to the Model menu, listed with the
+  local GGUFs because that is what it is: answers are generated on the Mac and
+  nothing leaves it. The entry appears only on hardware and an OS that can run
+  it, which is Apple Silicon on macOS 26 or later with Apple Intelligence
+  switched on; on Rosy herself it will never appear, and the framework is
+  weak-linked so older systems launch exactly as before. When the Mac is
+  eligible but the model is off or still downloading, the entry is shown
+  greyed out with the reason rather than hidden, so "why is it not there" has
+  an answer in the menu.
+  - Selecting it stops `llama-server`, as choosing a cloud provider does.
+    FoundationModels is not an HTTP server, so the OpenAI-compatible endpoint
+    other apps use is not available while it is selected.
+  - It calls Rosy's skills like any other runtime. FoundationModels describes
+    tools with a Swift `Tool` and a `GenerationSchema` rather than JSON, which
+    looks at first like a hand-written type per skill; `DynamicGenerationSchema`
+    builds the same thing at runtime, so one translator serves all of them and
+    any added later. The model's arguments arrive as the same JSON string an
+    HTTP provider would have sent and go through each skill's own native parser
+    and bounds check unchanged — the translated schema steers the model, and
+    Rosy's validators remain the only thing guarding the Mac. Schema properties
+    are emitted in sorted order so the tool block stays byte-stable.
+  - Tool calls now appear in the Insights **Response** tab, above the answer,
+    with their arguments and — on the on-device path, which is the only one that
+    knows them at the time — what Rosy handed back. They were being recorded and
+    never shown: the tab falls back to the raw body only when there is no
+    assembled text, so any turn that both spoke and called a tool hid the call
+    behind its own prose. That was a latent gap on the cloud path too, and it is
+    fixed for both.
+  - On-device answers appear in Insights like everything else. Nothing crosses
+    the recording proxy — the framework is in-process — so the call is described
+    into a record by hand, exactly as direct cloud requests already are, rather
+    than being the one runtime Insights cannot see. The request body carries a
+    `transport` field saying it was never sent anywhere, and the response body
+    carries the tool calls the framework ran out of Rosy's sight, which is the
+    only place they can be inspected. `CALL apple-intelligence/on-device` names
+    it for what it is; the 200 and 500 are the record's way of saying finished
+    and failed, since an in-process call has no status line.
+  - Tool *descriptions* are tuned for this model rather than shared with the
+    others. The existing wording hedges — "use only when the user clearly
+    requests the change" — because it was written to stop a 1-bit model muting
+    the Mac unprompted. Bonsai and DeepSeek read that as caution; Apple's model
+    reads it as a reason to call the zero-argument getter beside it and then
+    describe a volume it did not change. Measured over five runs per intent
+    against the real schema block: 15/30 correct tool choices on the shared
+    wording, 29/30 on wording written for this reader, with the read-only tools
+    unaffected. The override set is deliberately sparse — only the tools that
+    needed it — and a test fails if one ever names a skill that no longer
+    exists, or if the wording leaks into the block the other runtimes are
+    measured against. Nothing here weakens a guard: the hedges were belt to the
+    validators' braces, and every argument still goes through the skill's own
+    parser and bounds check.
+  - FoundationModels owns the tool loop rather than Rosy, so the per-answer
+    budget, the refusal wording, and showing retrieved evidence to the reader
+    all moved inside the tool itself. Guided routing still allows exactly one
+    call and Model-led still honours **Settings → Tool Calls**.
+  - There is no context-size setting for it, deliberately. The framework
+    publishes no context length at all, so any number in a field would be
+    invented. An overflow is reported with whatever figure the system gives:
+    the real token counts on macOS 27, and a plain "start a new chat" on
+    macOS 26, which reports none.
+- **Settings → Model** and **Settings → Performance** are now disabled when
+  inference is not going to `llama-server`, with a note at the top of the window
+  naming what is actually running. Every control in those sections is a
+  llama.cpp command-line flag, and they previously stayed editable while a cloud
+  provider or Apple's on-device model was selected — accepting changes to a
+  process that was not running. **Temperature** stays live throughout, because it
+  is the one sampling control every runtime honours; the four llama.cpp sampler
+  flags beside it do not.
+- Added a **Context Budget** submenu: how many tokens Rosy's own requests cost
+  before the question is typed. **Total** leads, as a share of the context
+  window, with **System Prompt**, **Tool Schema**, and **Chat Template** broken
+  out beneath it. The figure lives inside rather than on the menu row, where its
+  denominator and percentage would run half the width of the menu. Turning on every skill is not a rounding error — the
+  tool block alone can run to several hundred tokens — and the only symptom
+  used to be conversations forgetting their beginning sooner than expected.
+  The count is measured rather than estimated: `llama-server` renders the
+  request through the model's own chat template and tokenises it with the
+  model's own tokeniser, so it is what the model will actually be given.
+  Neither endpoint runs inference, and both are addressed on the upstream port
+  so the measurement does not appear in Insights. A number needs a running local
+  server — a cloud provider will not tokenise for free and Apple's on-device
+  model publishes no tokeniser at all — but the row is always present, saying
+  what it can say instead of vanishing. Under Apple's model that is the system
+  prompt's length **in characters**: with neither a tokeniser nor a published
+  context length there is no honest token count and no total for one to be a
+  share of. Opening the budget measures it properly, though: Rosy sends a
+  one-character prompt and reads back `usage.input` — the model's own count of
+  everything it was handed — three times, so **System Prompt**, **Tool Schema**
+  and **Model framing** each come out as a difference and sum to the total. It
+  costs three single-token generations, about a second warm, and is kept until
+  the prefix changes. Because it runs the model rather than a tokeniser, it is
+  wired to the Context Budget submenu opening rather than to the menu bar
+  opening: every other refresh in this app is free, and this one is not. There
+  is still no percentage, because there is still no published context length to
+  be a share of. Needs macOS 27, where `usage` was introduced; before it, the
+  character count stands alone. Once an answer has been given, a **Last
+  request — N input tokens** line joins them.
 - Registered cloud providers now appear as checkable choices under
   **Model → Cloud Models**. Switching back from a local GGUF no longer requires
   reopening the provider window; configuration remains a separate menu action.

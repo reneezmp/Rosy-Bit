@@ -7,6 +7,23 @@ struct PromptMessage: Identifiable {
     let content: String
 }
 
+/// One tool the model asked for during a request.
+///
+/// First-class rather than left inside the raw response body, because the
+/// Response tab shows the assembled text when there is any — so a turn that
+/// both spoke and called a tool would otherwise hide the call completely. That
+/// mattered least on the proxy path, where the raw body is at least there to
+/// read, and most on the on-device path, where the framework runs the loop out
+/// of Rosy's sight and this is the only record that it happened.
+struct ToolCallRecord: Identifiable {
+    let id = UUID()
+    let name: String
+    let arguments: String
+    /// What Rosy handed back. Only the on-device path can supply this; the
+    /// proxy sees the reply on a later request, not this one.
+    let observation: String?
+}
+
 /// One request/response pair as seen by the proxy.
 struct RequestRecord: Identifiable {
 
@@ -33,6 +50,9 @@ struct RequestRecord: Identifiable {
     /// `requestBody` instead would fail on exactly the long transcripts this is
     /// for, since truncation splices a marker into the middle of the JSON.
     var promptMessages: [PromptMessage] = []
+
+    /// Tool calls the model made during this request, in the order it made them.
+    var toolCalls: [ToolCallRecord] = []
 
     var model: String?
     var promptTokens: Int?
@@ -116,6 +136,38 @@ struct RequestRecord: Identifiable {
             startedAt: startedAt,
             method: "POST",
             path: host + url.path)
+        record.chatMessageID = chatMessageID
+        record.applyChatRequestBody(body)
+        return record
+    }
+}
+
+extension RequestRecord {
+
+    /// Starts a memory-only Insights record for a call that never becomes a
+    /// request.
+    ///
+    /// FoundationModels is in-process: there is no proxy to see it, no wire
+    /// format to capture, and no status line. Left alone it would simply be
+    /// missing from Insights, which would make Insights two products — the
+    /// exact thing `applyChatRequestBody` exists to prevent. So the call is
+    /// described in the same OpenAI-shaped vocabulary everything else uses,
+    /// and the body carries a `transport` field saying plainly that it was
+    /// never sent anywhere.
+    ///
+    /// `method` and `path` say what this is rather than dressing it as HTTP.
+    /// The status code is the one concession: 200 and 500 are how this record
+    /// says "finished" and "failed", because the badge reads an integer and
+    /// leaving it empty renders a completed call as still in flight.
+    static func onDeviceRequest(
+        body: String,
+        chatMessageID: UUID?,
+        startedAt: Date = Date()
+    ) -> RequestRecord {
+        var record = RequestRecord(
+            startedAt: startedAt,
+            method: "CALL",
+            path: "apple-intelligence/on-device")
         record.chatMessageID = chatMessageID
         record.applyChatRequestBody(body)
         return record

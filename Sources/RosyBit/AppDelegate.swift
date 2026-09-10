@@ -22,8 +22,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ModelStore.shared.refresh()
             ModelSetupWindowController.shared.closeIfOpen()
             // Installing a local model must not silently take inference back
-            // from an explicitly selected cloud profile.
-            if !CloudModelStore.shared.isCloudSelected {
+            // from an explicitly selected cloud profile, or from Apple's
+            // on-device model.
+            if InferenceSource.current() == .local {
                 ServerController.shared.start()
             }
         }
@@ -31,18 +32,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ModelStore.shared.refresh()
             ModelStore.shared.select(url)
             HuggingFaceImportWindowController.shared.closeIfOpen()
-            if !CloudModelStore.shared.isCloudSelected {
+            if InferenceSource.current() == .local {
                 let server = ServerController.shared
                 if server.state.isBusy { server.restart() } else { server.start() }
             }
         }
 
-        if ModelStore.shared.models.isEmpty && !CloudModelStore.shared.isCloudSelected {
+        if ModelStore.shared.models.isEmpty, InferenceSource.current() == .local {
             // Nothing to serve. Offer to fetch one instead of just reporting
             // the problem in the menu and leaving the user to find a script.
             ModelSetupWindowController.shared.show()
         }
-        if !CloudModelStore.shared.isCloudSelected {
+        if InferenceSource.current() == .local {
             ServerController.shared.start()
         }
     }
