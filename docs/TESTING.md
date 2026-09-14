@@ -6,6 +6,13 @@ HTTP 204/304, and HEAD. Everything below needs the real app, model, or target
 Mac and therefore remains a manual checklist. It is ordered so a failure early
 on explains failures later.
 
+This file is the complete pass. The shorter list of checks that have **never
+been run yet** — new work whose machine nobody has sat in front of, and the
+questions this project is still carrying — is in
+[`PENDING-TESTS.md`](PENDING-TESTS.md). An item that has never once passed is a
+different thing from one that wants re-running, and keeping them apart stops
+the first from hiding inside the second.
+
 ## Current automated and V1.1 release evidence — 2026-08-31
 
 - `swift test`: **89 tests, 0 failures**; the idempotent Core Audio write check
@@ -651,7 +658,12 @@ so this one waits to be asked for rather than firing when the menu bar opens.
 - [ ] **It fills in while the menu is open.** Change a skill, then open the menu:
       it may briefly say "measuring…" and should then replace itself with the
       number **without closing and reopening the menu**. This is the only place
-      in the app that redraws a menu that is already on screen
+      in the app that redraws a menu that is already on screen. Whether the
+      budget submenu is open is tracked by its own `menuWillOpen`/`menuDidClose`
+      rather than inferred: the measurement lands with `isMeasuring` already
+      false and every row disabled, so neither that flag nor `highlightedItem`
+      can answer at the one moment it matters, and the fallback path rebuilds
+      the whole menu out from under the reader
 - [ ] **It stays out of Insights.** Note the `Insights… (N)` count, open and
       close the Model menu several times, and check N has **not** climbed. The
       measurement deliberately talks to llama-server on the upstream port so it

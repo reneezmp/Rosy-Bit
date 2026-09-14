@@ -97,6 +97,63 @@ final class AppleFoundationModelTests: XCTestCase {
         XCTAssertTrue(prompt.hasPrefix("User: define plinth"))
     }
 
+    // MARK: - Stitching cumulative snapshots
+
+    /// The ordinary case: each snapshot is the whole answer so far, so only the
+    /// new tail travels.
+    func testCumulativeSnapshotYieldsOnlyTheNewTail() {
+        XCTAssertEqual(
+            AppleFoundationModel.segmentDelta(
+                snapshot: "A bonsai is a tree", shown: "A bonsai", hasSpoken: true),
+            " is a tree")
+    }
+
+    func testUnchangedSnapshotYieldsNothing() {
+        XCTAssertNil(
+            AppleFoundationModel.segmentDelta(
+                snapshot: "A bonsai", shown: "A bonsai", hasSpoken: true))
+        XCTAssertNil(
+            AppleFoundationModel.segmentDelta(snapshot: "", shown: "", hasSpoken: false))
+    }
+
+    /// A tool call ends one segment and begins another, and the new one does
+    /// not continue the old text. It is separated rather than appended blindly,
+    /// or its first Markdown heading never starts a line.
+    func testFreshSegmentIsSeparatedFromWhatWasAlreadySaid() {
+        XCTAssertEqual(
+            AppleFoundationModel.segmentDelta(
+                snapshot: "### Definition", shown: "Let me look that up.", hasSpoken: true),
+            "\n\n### Definition")
+    }
+
+    /// Nothing has been said yet, so there is nothing to separate it from.
+    func testFirstSegmentGetsNoLeadingBreak() {
+        XCTAssertEqual(
+            AppleFoundationModel.segmentDelta(
+                snapshot: "Hello", shown: "", hasSpoken: false),
+            "Hello")
+    }
+
+    /// The reason `Result.text` accumulates deltas instead of taking the last
+    /// snapshot: replacing it leaves the record holding only the closing half
+    /// of an answer the reader saw in full, and on this runtime that record is
+    /// the only trace the answer leaves.
+    func testAccumulatedDeltasReproduceTheWholeAnswerAcrossAToolCall() {
+        let snapshots = ["Let me", "Let me look that up.", "### Definition", "### Definition\nA tree."]
+        var shown = ""
+        var hasSpoken = false
+        var accumulated = ""
+        for snapshot in snapshots {
+            guard let delta = AppleFoundationModel.segmentDelta(
+                snapshot: snapshot, shown: shown, hasSpoken: hasSpoken) else { continue }
+            accumulated += delta
+            shown = snapshot
+            hasSpoken = true
+        }
+        XCTAssertEqual(accumulated, "Let me look that up.\n\n### Definition\nA tree.")
+        XCTAssertNotEqual(accumulated, snapshots.last)
+    }
+
     func testSeveralSystemMessagesBecomeOneSetOfInstructions() {
         let (instructions, prompt) = AppleFoundationModel.flatten([
             ["role": "system", "content": "Be brief."],

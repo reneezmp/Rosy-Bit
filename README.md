@@ -181,6 +181,8 @@ Useful project references:
 
 - **[Runbook](docs/RUNBOOK.md)** — build, installation, configuration, and repair
 - **[Testing](docs/TESTING.md)** — automated coverage and real-machine checks
+- **[Pending tests](docs/PENDING-TESTS.md)** — what is not verified yet, and on
+  which Mac it has to be verified
 - **[Roadmap](docs/ROADMAP.md)** — what V1 settled and what comes next
 - **[Changelog](CHANGELOG.md)** — release history
 - **[Third-party notices](THIRD_PARTY_NOTICES.md)** — licenses and attribution

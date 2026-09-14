@@ -91,16 +91,21 @@ final class PrefixBudget: ObservableObject {
             // Characters and the last request's usage are free, so they land
             // immediately. Tokens are not: measuring them runs the model, and
             // that waits until someone opens the budget and asks.
-            var onDevice = OnDevice(
+            let key = onDeviceKey()
+            if measuredOnDeviceKey != key {
+                measuredOnDevice = nil
+                measuredOnDeviceKey = nil
+            }
+            let onDevice = OnDevice(
                 systemPromptCharacters: Config.systemPrompt?.count ?? 0,
                 lastInputTokens: AppleModelStore.shared.lastInputTokens,
                 measured: measuredOnDevice,
                 canMeasure: canMeasureOnDevice)
-            if measuredOnDeviceKey != onDeviceKey() {
-                onDevice.measured = nil
-                measuredOnDevice = nil
-            }
-            return settle(.onDevice(onDevice))
+            // A probe already running for this same prefix is the answer this
+            // reading is waiting for. This runs on every menu open and on every
+            // server event, so cancelling here would throw away three real
+            // generations each time and leave nothing cached to show for them.
+            return settle(.onDevice(onDevice), keepingWork: inFlightOnDeviceKey == key)
         case .cloud:
             return settle(.unavailable("Counted by the provider, not here."))
         case .local:
@@ -139,6 +144,9 @@ final class PrefixBudget: ObservableObject {
 
     private var measuredOnDevice: AppleFoundationModel.PrefixMeasurement?
     private var measuredOnDeviceKey: String?
+    /// The prefix a running probe is measuring, so `settle` can tell work worth
+    /// keeping from work a changed selection has made pointless.
+    private var inFlightOnDeviceKey: String?
 
     private var canMeasureOnDevice: Bool {
         if #available(macOS 27.0, *) { return true }
@@ -171,6 +179,7 @@ final class PrefixBudget: ObservableObject {
         let schemas = ChatClient.toolSchemas(isCloud: false, isApple: true)
         task?.cancel()
         isMeasuring = true
+        inFlightOnDeviceKey = key
         task = Task { [weak self] in
             var measured: AppleFoundationModel.PrefixMeasurement?
             if #available(macOS 27.0, *) {
@@ -182,6 +191,7 @@ final class PrefixBudget: ObservableObject {
                 guard let self else { return }
                 self.isMeasuring = false
                 self.task = nil
+                self.inFlightOnDeviceKey = nil
                 // A failed probe leaves the key unset so opening the submenu
                 // again tries once more, rather than showing nothing for ever.
                 self.measuredOnDeviceKey = measured == nil ? nil : key
@@ -192,12 +202,20 @@ final class PrefixBudget: ObservableObject {
     }
 
     /// Records a reading that needed no measuring, cancelling any that was.
+    ///
+    /// `keepingWork` is the exception: a probe already running for the prefix
+    /// this reading describes is producing the missing half of it, so tearing
+    /// it down would only make the next open pay for the same generations
+    /// again.
     @MainActor
-    private func settle(_ value: Reading) {
-        task?.cancel()
-        task = nil
+    private func settle(_ value: Reading, keepingWork: Bool = false) {
+        if !keepingWork {
+            task?.cancel()
+            task = nil
+            inFlightOnDeviceKey = nil
+            isMeasuring = false
+        }
         measuredKey = nil
-        isMeasuring = false
         if reading != value { reading = value }
     }
 

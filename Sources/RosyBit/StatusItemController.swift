@@ -22,7 +22,15 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private var activityDot: NSView?
     private var isMenuOpen = false
-    private weak var budgetSubmenu: NSMenu?
+    /// The budget submenu that is actually on screen, which is not necessarily
+    /// the one the most recent `rebuild` created. Set and cleared by that
+    /// menu's own delegate callbacks, because nothing on `NSMenu` answers
+    /// "are you open" and the alternatives all guess.
+    private weak var openBudgetSubmenu: NSMenu?
+    /// Identifies a budget submenu across rebuilds, which a reference to one
+    /// particular `NSMenu` cannot do.
+    private static let budgetMenuIdentifier =
+        NSUserInterfaceItemIdentifier("com.rosybit.contextBudget")
     private var cancellables = Set<AnyCancellable>()
 
     private override init() {
@@ -79,8 +87,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 guard let self, self.isMenuOpen else { return }
                 // Rebuilding the whole menu would tear down the submenu the
                 // reader is looking at, so an open budget is refilled in place.
-                if let submenu = self.budgetSubmenu, submenu.numberOfItems > 0,
-                   submenu.highlightedItem != nil || PrefixBudget.shared.isMeasuring {
+                // Whether it is open comes from its delegate callbacks and not
+                // from the state: the measurement lands with `isMeasuring`
+                // already false and every row disabled, so neither that flag
+                // nor `highlightedItem` can answer at the one moment it counts.
+                if let submenu = self.openBudgetSubmenu {
                     self.populateBudget(submenu)
                     return
                 }
@@ -188,18 +199,30 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: - Menu
 
     func menuDidClose(_ menu: NSMenu) {
-        if menu === budgetSubmenu { return }
+        // By identifier rather than by reference. A redraw can replace the
+        // budget submenu while the reader is still inside the old one, and an
+        // identity check against the newest build would read that close as the
+        // whole menu closing — silencing every redraw after it.
+        guard menu.identifier != Self.budgetMenuIdentifier else {
+            if menu === openBudgetSubmenu { openBudgetSubmenu = nil }
+            return
+        }
         isMenuOpen = false
+        openBudgetSubmenu = nil
     }
 
     func menuWillOpen(_ menu: NSMenu) {
         // The Context Budget submenu is the one place inference is invited.
-        guard menu !== budgetSubmenu else {
+        guard menu.identifier != Self.budgetMenuIdentifier else {
+            openBudgetSubmenu = menu
             PrefixBudget.shared.measureOnDevice()
             populateBudget(menu)
             return
         }
         isMenuOpen = true
+        // Nothing is displayed at the moment the root menu opens, and the
+        // rebuild below replaces the budget submenu anyway.
+        openBudgetSubmenu = nil
         // Gotcha #4: the only status refresh in the app, and it happens when
         // the user actually looks at the menu rather than on a timer.
         ModelStore.shared.refresh()
@@ -385,7 +408,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // measurement — the only refresh in the app that costs inference, and
         // therefore the only one that waits to be asked for specifically.
         submenu.delegate = self
-        budgetSubmenu = submenu
+        submenu.identifier = Self.budgetMenuIdentifier
         populateBudget(submenu)
         parent.submenu = submenu
         return parent

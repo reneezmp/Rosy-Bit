@@ -305,6 +305,28 @@ enum AppleFoundationModel {
         }
     }
 
+    /// The visible difference between a cumulative snapshot and what has
+    /// already been shown, or `nil` when there is nothing new to send.
+    ///
+    /// `ResponseStream` yields cumulative snapshots — each one is the whole
+    /// answer so far — so ordinarily the new tail is what gets sent on. A tool
+    /// call can end one segment and begin another, though, and a fresh segment
+    /// does not continue the old text: it is separated from what was already
+    /// said rather than appended blindly, which is why this is a prefix check
+    /// and not a bare `dropFirst`.
+    ///
+    /// Pure, and outside `stream`, so the stitching can be tested without a
+    /// model. Appending every delta it returns reproduces exactly what the
+    /// reader saw, which is what `Result.text` has to hold.
+    static func segmentDelta(snapshot: String, shown: String, hasSpoken: Bool) -> String? {
+        if snapshot.hasPrefix(shown) {
+            guard snapshot.count > shown.count else { return nil }
+            return String(snapshot.dropFirst(shown.count))
+        }
+        guard !snapshot.isEmpty else { return nil }
+        return hasSpoken ? "\n\n" + snapshot : snapshot
+    }
+
     /// Streams one answer, calling `onDelta` on the main thread with each new
     /// fragment.
     ///
@@ -370,6 +392,10 @@ enum AppleFoundationModel {
 
         var result = Result()
         var shown = ""
+        // A local mirror of `spoken`. The actor exists so the tool closure can
+        // read this from whatever thread FoundationModels calls it on; the loop
+        // is the only writer, so it need not hop per token to ask itself.
+        var hasSpoken = false
         // No `maximumResponseTokens`: the framework decides what fits, and a
         // ceiling picked here would only be a second, worse context limit.
         let options = GenerationOptions(temperature: Config.temperature)
@@ -378,22 +404,17 @@ enum AppleFoundationModel {
             for try await snapshot in session.streamResponse(to: prompt, options: options) {
                 if Task.isCancelled { throw CancellationError() }
                 let text = snapshot.content
-                // Snapshots are cumulative, so the difference against what has
-                // already been shown is what gets sent on. A tool call can end
-                // one segment and begin another, though, and a fresh segment
-                // does not continue the old text — hence the prefix check
-                // rather than a bare `dropFirst`.
-                let delta: String
-                if text.hasPrefix(shown) {
-                    guard text.count > shown.count else { continue }
-                    delta = String(text.dropFirst(shown.count))
-                } else {
-                    guard !text.isEmpty else { continue }
-                    delta = await spoken.value ? "\n\n" + text : text
-                }
+                guard let delta = segmentDelta(
+                    snapshot: text, shown: shown, hasSpoken: hasSpoken) else { continue }
                 if result.firstTokenAt == nil { result.firstTokenAt = Date() }
                 shown = text
-                result.text = text
+                // Accumulated from the deltas rather than replaced by the
+                // snapshot. A fresh segment does not carry what was said before
+                // it, so assigning here would leave the record holding only the
+                // closing half of an answer the reader saw in full — and on this
+                // runtime the record is the only trace there is.
+                result.text += delta
+                hasSpoken = true
                 await spoken.raise()
                 await sink.emit(delta)
                 if #available(macOS 27.0, *) {
